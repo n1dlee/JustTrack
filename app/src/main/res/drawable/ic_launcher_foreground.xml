@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Hand icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 C54,28 56,26 58,26 C60,26 62,28 62,30 L62,52 C62,54 60,56 58,56 C56,56 54,54 54,52 Z
+                          M44,34 C44,32 46,30 48,30 C50,30 52,32 52,34 L52,52 C52,54 50,56 48,56 C46,56 44,54 44,52 Z
+                          M64,36 C64,34 66,32 68,32 C70,32 72,34 72,36 L72,52 C72,54 70,56 68,56 C66,56 64,54 64,52 Z
+                          M34,42 C34,40 36,38 38,38 C40,38 42,40 42,42 L42,52 C42,54 40,56 38,56 C36,56 34,54 34,52 Z
+                          M34,52 L34,62 C34,70 40,78 54,78 C68,78 74,70 74,62 L74,52" />
+</vector>

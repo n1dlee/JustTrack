@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JustTrack</string>
+
+    <!-- MainActivity -->
+    <string name="title">JustTrack</string>
+    <string name="subtitle">Управляй телефоном жестами</string>
+    <string name="gesture_hint">✋ Покажи ладонь 1.5с → активация\n🤏 Тап = play/pause\n🤏🤏 Двойной = след. трек\n🤏🤏🤏 Тройной = пред. трек\n↕ Зажми + двигай = громкость\n⏱ 10с без жестов → деактивация</string>
+    <string name="status_active">● Активен — слежу за жестами</string>
+    <string name="status_stopped">○ Остановлен</string>
+    <string name="btn_start">Запустить JustTrack</string>
+    <string name="btn_stop">Остановить JustTrack</string>
+    <string name="permissions_required">Нужны разрешения камеры и уведомлений</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_btn">Настройки</string>
+    <string name="pref_category_gesture">Жесты</string>
+    <string name="pref_pinch_sensitivity">Чувствительность захвата</string>
+    <string name="pref_pinch_sensitivity_summary">Насколько близко нужно сжать пальцы</string>
+    <string name="pref_move_sensitivity">Чувствительность движения</string>
+    <string name="pref_move_sensitivity_summary">Насколько сильно нужно двинуть рукой</string>
+    <string name="pref_category_feedback">Обратная связь</string>
+    <string name="pref_haptic_feedback">Вибрация</string>
+    <string name="pref_haptic_feedback_summary">Вибрация при изменении громкости</string>
+
+    <!-- GestureService notification -->
+    <string name="notif_channel_name">JustTrack Gesture Service</string>
+    <string name="notif_channel_desc">Отслеживание жестов для управления телефоном</string>
+    <string name="notif_title">JustTrack</string>
+    <string name="notif_text">Слежу за жестами ✋</string>
+</resources>

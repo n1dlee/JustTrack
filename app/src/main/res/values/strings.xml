@@ -5,7 +5,7 @@
     <!-- MainActivity -->
     <string name="title">JustTrack</string>
     <string name="subtitle">Управляй телефоном жестами</string>
-    <string name="gesture_hint">✋ Покажи ладонь 1.5с → активация\n🤏 Тап = play/pause\n🤏🤏 Двойной = след. трек\n🤏🤏🤏 Тройной = пред. трек\n↕ Зажми + двигай = громкость\n⏱ 10с без жестов → деактивация</string>
+    <string name="gesture_hint">✋ Покажи ладонь 1.5с → активация\n✌️ Держи 1.5с → переключить режим\n🤏 Тап = play/pause (медиа) / тап (экран)\n🤏🤏 Двойной = след. трек / двойной тап\n↕ Зажми + двигай = громкость / свайп\n⏱ 10с без жестов → деактивация</string>
     <string name="status_active">● Активен — слежу за жестами</string>
     <string name="status_stopped">○ Остановлен</string>
     <string name="btn_start">Запустить JustTrack</string>
@@ -22,11 +22,32 @@
     <string name="pref_move_sensitivity_summary">Насколько сильно нужно двинуть рукой</string>
     <string name="pref_category_feedback">Обратная связь</string>
     <string name="pref_haptic_feedback">Вибрация</string>
-    <string name="pref_haptic_feedback_summary">Вибрация при изменении громкости</string>
+    <string name="pref_haptic_feedback_summary">Вибрация при жестах</string>
+    <string name="pref_category_hand">Рука</string>
+    <string name="pref_main_hand">Основная рука</string>
+    <string name="pref_main_hand_summary">Какую руку отслеживать</string>
+    <string name="pref_category_system">Система</string>
+    <string name="pref_auto_start">Автозапуск</string>
+    <string name="pref_auto_start_summary">Запускать JustTrack при включении телефона</string>
+
+    <!-- Main hand entries -->
+    <string name="hand_both">Обе руки</string>
+    <string name="hand_left">Левая рука</string>
+    <string name="hand_right">Правая рука</string>
 
     <!-- GestureService notification -->
     <string name="notif_channel_name">JustTrack Gesture Service</string>
     <string name="notif_channel_desc">Отслеживание жестов для управления телефоном</string>
     <string name="notif_title">JustTrack</string>
     <string name="notif_text">Слежу за жестами ✋</string>
+    <string name="notif_stop">Остановить</string>
+
+    <!-- Toast messages -->
+    <string name="toast_activated">JustTrack: Жесты активированы ✋</string>
+    <string name="toast_deactivated">JustTrack: Жесты деактивированы</string>
+    <string name="toast_mode_screen">JustTrack: Режим экрана ✌️</string>
+    <string name="toast_mode_media">JustTrack: Режим медиа 🎵</string>
+
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">JustTrack использует специальные возможности для выполнения свайпов и тапов на экране по жестам руки. Включите для режима управления экраном.</string>
 </resources>

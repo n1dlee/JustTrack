@@ -24,6 +24,18 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/pref_category_hand">
+
+        <ListPreference
+            android:key="pref_main_hand"
+            android:title="@string/pref_main_hand"
+            android:summary="@string/pref_main_hand_summary"
+            android:defaultValue="both"
+            android:entries="@array/hand_entries"
+            android:entryValues="@array/hand_values" />
+
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/pref_category_feedback">
 
         <SwitchPreferenceCompat
@@ -31,6 +43,16 @@
             android:title="@string/pref_haptic_feedback"
             android:summary="@string/pref_haptic_feedback_summary"
             android:defaultValue="true" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_category_system">
+
+        <SwitchPreferenceCompat
+            android:key="pref_auto_start"
+            android:title="@string/pref_auto_start"
+            android:summary="@string/pref_auto_start_summary"
+            android:defaultValue="false" />
 
     </PreferenceCategory>
 

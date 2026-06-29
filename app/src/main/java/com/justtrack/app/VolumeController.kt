@@ -10,6 +10,10 @@ import android.view.KeyEvent
 
 class VolumeController(context: Context) {
 
+    companion object {
+        const val VOLUME_SENSITIVITY = 2.5f
+    }
+
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val vibrator: Vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
@@ -19,23 +23,23 @@ class VolumeController(context: Context) {
     }
 
     var hapticEnabled = true
+    private var smoothVolumeStart = 0
+    private var lastSetVolume = -1
 
-    fun volumeUp() {
-        audioManager.adjustStreamVolume(
-            AudioManager.STREAM_MUSIC,
-            AudioManager.ADJUST_RAISE,
-            AudioManager.FLAG_SHOW_UI
-        )
-        if (hapticEnabled) vibrate()
+    fun beginSmoothVolume() {
+        smoothVolumeStart = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        lastSetVolume = smoothVolumeStart
     }
 
-    fun volumeDown() {
-        audioManager.adjustStreamVolume(
-            AudioManager.STREAM_MUSIC,
-            AudioManager.ADJUST_LOWER,
-            AudioManager.FLAG_SHOW_UI
-        )
-        if (hapticEnabled) vibrate()
+    fun setVolumeByDelta(deltaY: Float) {
+        val maxVol = getMaxVolume()
+        val change = (deltaY * VOLUME_SENSITIVITY * maxVol).toInt()
+        val newVol = (smoothVolumeStart + change).coerceIn(0, maxVol)
+        if (newVol != lastSetVolume) {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, AudioManager.FLAG_SHOW_UI)
+            lastSetVolume = newVol
+            if (hapticEnabled) vibrate(10)
+        }
     }
 
     fun playPause() {
@@ -62,6 +66,16 @@ class VolumeController(context: Context) {
     private fun sendMediaKey(keyCode: Int) {
         audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
         audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+    }
+
+    fun dispatchAction(action: GestureAction) {
+        when (action) {
+            is GestureAction.VolumeSet -> setVolumeByDelta(action.deltaY)
+            is GestureAction.PlayPause -> playPause()
+            is GestureAction.NextTrack -> nextTrack()
+            is GestureAction.PrevTrack -> prevTrack()
+            else -> {}
+        }
     }
 
     fun vibrateActivation() {

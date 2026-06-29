@@ -50,11 +50,13 @@ Android-приложение для управления телефоном же
 
 ```
 app/src/main/java/com/justtrack/app/
-├── MainActivity.kt          — UI, превью камеры, обработка жестов в foreground
-├── GestureService.kt        — Foreground service, обработка жестов в фоне
+├── MainActivity.kt          — UI, превью камеры, делегирует в HandTrackingEngine
+├── GestureService.kt        — LifecycleService, фоновый трекинг через HandTrackingEngine
+├── HandTrackingEngine.kt    — MediaPipe инференс + обработка кадров (убирает дубликацию)
 ├── PinchVolumeGesture.kt    — State machine распознавания жестов
 ├── VolumeController.kt      — AudioManager + MediaKey dispatch + haptics
 ├── HandOverlayView.kt       — Custom View: отрисовка точек руки, фидбек действий
+├── PrefsKeys.kt             — Централизованные ключи настроек и формулы порогов
 └── SettingsActivity.kt      — Экран настроек (PreferenceFragment)
 ```
 
@@ -99,7 +101,7 @@ adb shell am start -n com.justtrack.app/.MainActivity
 ## Тесты
 
 ```bash
-# Все unit-тесты (27 тестов)
+# Все unit-тесты (51 тест)
 ./gradlew test
 
 # Конкретный класс
@@ -108,9 +110,10 @@ adb shell am start -n com.justtrack.app/.MainActivity
 
 ### Покрытие тестами
 
-- `PinchVolumeGestureTest` — 24 теста: активация, тапы, громкость, edge cases
-- `VolumeControllerTest` — 11 тестов: volume, media keys, haptics
+- `PinchVolumeGestureTest` — 27 тестов: активация, тапы, громкость, edge cases, deactivation
+- `VolumeControllerTest` — 17 тестов: volume, media keys, haptics, dispatchAction
 - `GestureActionTest` — 2 теста: enum validation
+- `PrefsKeysTest` — 5 тестов: формулы порогов, граничные значения
 
 ## Лицензия
 

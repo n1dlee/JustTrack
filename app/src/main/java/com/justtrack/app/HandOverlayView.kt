@@ -19,22 +19,24 @@ class HandOverlayView @JvmOverloads constructor(
         private const val THUMB_TIP = 4
         private const val INDEX_TIP = 8
         private const val ACTION_DISPLAY_MS = 1200L
-    }
 
-    private val CONNECTIONS = listOf(
-        0 to 1, 1 to 2, 2 to 3, 3 to 4,
-        0 to 5, 5 to 6, 6 to 7, 7 to 8,
-        0 to 9, 9 to 10, 10 to 11, 11 to 12,
-        0 to 13, 13 to 14, 14 to 15, 15 to 16,
-        0 to 17, 17 to 18, 18 to 19, 19 to 20,
-        5 to 9, 9 to 13, 13 to 17
-    )
+        private val CONNECTIONS = listOf(
+            0 to 1, 1 to 2, 2 to 3, 3 to 4,
+            0 to 5, 5 to 6, 6 to 7, 7 to 8,
+            0 to 9, 9 to 10, 10 to 11, 11 to 12,
+            0 to 13, 13 to 14, 14 to 15, 15 to 16,
+            0 to 17, 17 to 18, 18 to 19, 19 to 20,
+            5 to 9, 9 to 13, 13 to 17
+        )
+    }
 
     private var landmarks: List<NormalizedLandmark>? = null
     private var isPinching = false
     private var gestureState = PinchVolumeGesture.State.INACTIVE
     private var activationProgress = 0f
-    private var lastAction: GestureAction = GestureAction.NONE
+    private var currentMode = ControlMode.MEDIA
+    private var modeSwitchProgress = 0f
+    private var lastAction: GestureAction = GestureAction.None
     private var lastActionShowTime = 0L
 
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -82,6 +84,12 @@ class HandOverlayView @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
     }
 
+    private val activationHintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 100, 255, 100)
+        textSize = 28f
+        textAlign = Paint.Align.CENTER
+    }
+
     private val progressArcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.GREEN
         style = Paint.Style.STROKE
@@ -97,13 +105,32 @@ class HandOverlayView @JvmOverloads constructor(
 
     private val progressTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textSize = 28f
+        textSize = 32f
         textAlign = Paint.Align.CENTER
     }
 
-    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val borderOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(160, 0, 200, 0)
         style = Paint.Style.STROKE
         strokeWidth = 4f
+    }
+
+    private val borderInnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(80, 0, 200, 0)
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+    }
+
+    private val screenBorderOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(160, 0, 120, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+
+    private val screenBorderInnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(80, 0, 120, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
     }
 
     private val actionBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -128,28 +155,43 @@ class HandOverlayView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
-    private val activeBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val screenBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(160, 0, 100, 220)
+        style = Paint.Style.FILL
+    }
+
+    private val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = 24f
         textAlign = Paint.Align.CENTER
     }
 
+    private val modeSwitchArcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(220, 100, 180, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+        strokeCap = Paint.Cap.ROUND
+    }
+
     fun updateLandmarks(
         newLandmarks: List<NormalizedLandmark>?,
         pinching: Boolean,
-        volume: Float,
         state: PinchVolumeGesture.State = PinchVolumeGesture.State.INACTIVE,
-        progress: Float = 0f
+        progress: Float = 0f,
+        controlMode: ControlMode = ControlMode.MEDIA,
+        msProgress: Float = 0f
     ) {
         landmarks = newLandmarks
         isPinching = pinching
         gestureState = state
         activationProgress = progress
+        currentMode = controlMode
+        modeSwitchProgress = msProgress
         invalidate()
     }
 
     fun showAction(action: GestureAction) {
-        if (action == GestureAction.NONE) return
+        if (action is GestureAction.None || action is GestureAction.VolumeSet) return
         lastAction = action
         lastActionShowTime = System.currentTimeMillis()
         invalidate()
@@ -160,6 +202,7 @@ class HandOverlayView @JvmOverloads constructor(
         isPinching = false
         gestureState = PinchVolumeGesture.State.INACTIVE
         activationProgress = 0f
+        modeSwitchProgress = 0f
         invalidate()
     }
 
@@ -171,9 +214,7 @@ class HandOverlayView @JvmOverloads constructor(
         val isActive = gestureState != PinchVolumeGesture.State.INACTIVE &&
                 gestureState != PinchVolumeGesture.State.ACTIVATING
 
-        if (isActive) {
-            drawActiveBorder(canvas, w, h)
-        }
+        if (isActive) drawActiveBorder(canvas, w, h)
 
         val lm = landmarks
         if (lm == null || lm.size < 21) {
@@ -189,7 +230,12 @@ class HandOverlayView @JvmOverloads constructor(
             }
             PinchVolumeGesture.State.ACTIVATING -> {
                 drawLandmarksDimmed(canvas, lm, w, h)
-                drawActivationProgress(canvas, lm, w, h)
+                drawActivationProgress(canvas, w, h)
+            }
+            PinchVolumeGesture.State.MODE_SWITCHING -> {
+                drawLandmarks(canvas, lm, w, h)
+                drawModeSwitchProgress(canvas, w, h)
+                drawActiveBadge(canvas, w)
             }
             else -> {
                 drawLandmarks(canvas, lm, w, h)
@@ -240,7 +286,7 @@ class HandOverlayView @JvmOverloads constructor(
         canvas.drawText("Держи 1.5 сек для активации", w / 2f, h * 0.93f, hintSmallPaint)
     }
 
-    private fun drawActivationProgress(canvas: Canvas, lm: List<NormalizedLandmark>, w: Float, h: Float) {
+    private fun drawActivationProgress(canvas: Canvas, w: Float, h: Float) {
         val centerX = w / 2f
         val centerY = h / 2f
         val radius = 70f
@@ -250,37 +296,54 @@ class HandOverlayView @JvmOverloads constructor(
         canvas.drawArc(rect, -90f, 360f * activationProgress, false, progressArcPaint)
 
         val percent = (activationProgress * 100).toInt()
-        progressTextPaint.textSize = 32f
         canvas.drawText("$percent%", centerX, centerY + 12f, progressTextPaint)
+        canvas.drawText("Держи...", centerX, centerY + radius + 40f, activationHintPaint)
+    }
 
-        hintSmallPaint.color = Color.argb(200, 100, 255, 100)
-        canvas.drawText("Держи...", centerX, centerY + radius + 40f, hintSmallPaint)
-        hintSmallPaint.color = Color.argb(140, 255, 255, 255)
+    private fun drawModeSwitchProgress(canvas: Canvas, w: Float, h: Float) {
+        val centerX = w / 2f
+        val centerY = h / 2f
+        val radius = 60f
+        val rect = RectF(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
+
+        canvas.drawArc(rect, 0f, 360f, false, progressBgPaint)
+        canvas.drawArc(rect, -90f, 360f * modeSwitchProgress, false, modeSwitchArcPaint)
+
+        canvas.drawText("✌️", centerX, centerY + 14f, progressTextPaint)
+        val targetMode = if (currentMode == ControlMode.MEDIA) "Экран" else "Медиа"
+        canvas.drawText("→ $targetMode", centerX, centerY + radius + 40f, activationHintPaint)
     }
 
     private fun drawActiveBorder(canvas: Canvas, w: Float, h: Float) {
-        borderPaint.color = Color.argb(160, 0, 200, 0)
-        canvas.drawRect(0f, 0f, w, h, borderPaint)
-        borderPaint.strokeWidth = 2f
-        borderPaint.color = Color.argb(80, 0, 200, 0)
-        canvas.drawRect(4f, 4f, w - 4f, h - 4f, borderPaint)
-        borderPaint.strokeWidth = 4f
+        if (currentMode == ControlMode.SCREEN) {
+            canvas.drawRect(0f, 0f, w, h, screenBorderOuterPaint)
+            canvas.drawRect(4f, 4f, w - 4f, h - 4f, screenBorderInnerPaint)
+        } else {
+            canvas.drawRect(0f, 0f, w, h, borderOuterPaint)
+            canvas.drawRect(4f, 4f, w - 4f, h - 4f, borderInnerPaint)
+        }
     }
 
     private fun drawActiveBadge(canvas: Canvas, w: Float) {
-        val badgeW = 120f
+        val badgeW = 140f
         val badgeH = 32f
         val x = w / 2f - badgeW / 2f
         val y = 16f
-        canvas.drawRoundRect(x, y, x + badgeW, y + badgeH, 16f, 16f, activeBadgePaint)
-        canvas.drawText("● Готов", w / 2f, y + 24f, activeBadgeTextPaint)
+
+        if (currentMode == ControlMode.SCREEN) {
+            canvas.drawRoundRect(x, y, x + badgeW, y + badgeH, 16f, 16f, screenBadgePaint)
+            canvas.drawText("📱 Экран", w / 2f, y + 24f, badgeTextPaint)
+        } else {
+            canvas.drawRoundRect(x, y, x + badgeW, y + badgeH, 16f, 16f, activeBadgePaint)
+            canvas.drawText("🎵 Медиа", w / 2f, y + 24f, badgeTextPaint)
+        }
     }
 
     private fun drawActionFeedback(canvas: Canvas, w: Float, h: Float) {
-        if (lastAction == GestureAction.NONE) return
+        if (lastAction is GestureAction.None) return
         val elapsed = System.currentTimeMillis() - lastActionShowTime
         if (elapsed > ACTION_DISPLAY_MS) {
-            lastAction = GestureAction.NONE
+            lastAction = GestureAction.None
             return
         }
 
@@ -289,12 +352,17 @@ class HandOverlayView @JvmOverloads constructor(
         val scale = 0.8f + fadeRatio * 0.2f
 
         val (icon, label) = when (lastAction) {
-            GestureAction.PLAY_PAUSE -> "⏯" to "Play / Pause"
-            GestureAction.NEXT_TRACK -> "⏭" to "Next Track"
-            GestureAction.PREV_TRACK -> "⏮" to "Prev Track"
-            GestureAction.VOLUME_UP -> "🔊" to "Volume +"
-            GestureAction.VOLUME_DOWN -> "🔉" to "Volume −"
-            GestureAction.NONE -> return
+            is GestureAction.PlayPause -> "⏯" to "Play / Pause"
+            is GestureAction.NextTrack -> "⏭" to "Next Track"
+            is GestureAction.PrevTrack -> "⏮" to "Prev Track"
+            is GestureAction.SwipeUp -> "⬆" to "Swipe Up"
+            is GestureAction.SwipeDown -> "⬇" to "Swipe Down"
+            is GestureAction.SwipeLeft -> "⬅" to "Swipe Left"
+            is GestureAction.SwipeRight -> "➡" to "Swipe Right"
+            is GestureAction.TapScreen -> "👆" to "Tap"
+            is GestureAction.DoubleTapScreen -> "👆👆" to "Double Tap"
+            is GestureAction.ModeSwitch -> "🔄" to "Mode Switch"
+            else -> return
         }
 
         val cx = w / 2f

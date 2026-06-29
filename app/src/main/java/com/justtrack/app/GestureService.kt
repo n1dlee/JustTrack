@@ -4,61 +4,53 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.os.Build
-import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.LifecycleService
 import androidx.preference.PreferenceManager
-import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.tasks.core.BaseOptions
-import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
-import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 import java.util.concurrent.Executors
 
-class GestureService : Service(), LifecycleOwner {
+class GestureService : LifecycleService() {
 
     companion object {
         private const val TAG = "GestureService"
         private const val CHANNEL_ID = "justtrack_channel"
         private const val NOTIFICATION_ID = 1
-        private const val MODEL_ASSET = "hand_landmarker.task"
         const val ACTION_START_CAMERA = "com.justtrack.app.START_CAMERA"
         const val ACTION_STOP_CAMERA = "com.justtrack.app.STOP_CAMERA"
+        const val ACTION_STOP_TRACKING = "com.justtrack.app.STOP_TRACKING"
     }
 
-    private val lifecycleRegistry = LifecycleRegistry(this)
-    override val lifecycle: Lifecycle get() = lifecycleRegistry
-
-    private var handLandmarker: HandLandmarker? = null
     private val cameraExecutor = Executors.newSingleThreadExecutor()
-    private val gestureRecognizer = PinchVolumeGesture()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private lateinit var engine: HandTrackingEngine
     private lateinit var volumeController: VolumeController
-    private var frameCount = 0
+    private lateinit var screenController: ScreenController
     private var cameraRunning = false
-    private var wasActivated = false
 
     override fun onCreate() {
         super.onCreate()
-        lifecycleRegistry.currentState = Lifecycle.State.CREATED
         volumeController = VolumeController(this)
+        screenController = ScreenController(this)
+        engine = HandTrackingEngine(this)
         loadPreferences()
         createNotificationChannel()
-        setupHandLandmarker()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
         when (intent?.action) {
             ACTION_START_CAMERA -> {
                 if (!cameraRunning) startCamera()
@@ -66,65 +58,50 @@ class GestureService : Service(), LifecycleOwner {
             ACTION_STOP_CAMERA -> {
                 stopCamera()
             }
+            ACTION_STOP_TRACKING -> {
+                setServiceRunning(false)
+                stopSelf()
+            }
             else -> {
                 startForeground(NOTIFICATION_ID, buildNotification())
-                lifecycleRegistry.currentState = Lifecycle.State.STARTED
-                lifecycleRegistry.currentState = Lifecycle.State.RESUMED
                 setServiceRunning(true)
             }
         }
         return START_STICKY
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
-
     override fun onDestroy() {
         setServiceRunning(false)
-        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
-        handLandmarker?.close()
+        engine.release()
         cameraExecutor.shutdown()
         super.onDestroy()
     }
 
     private fun loadPreferences() {
+        engine.loadPreferences(this)
         val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        val pinchSens = prefs.getInt("pref_pinch_sensitivity", 5)
-        val moveSens = prefs.getInt("pref_move_sensitivity", 5)
-        val haptic = prefs.getBoolean("pref_haptic_feedback", true)
-
-        val pinchThreshold = 0.01f + pinchSens * 0.01f
-        val moveThreshold = 0.09f - moveSens * 0.008f
-
-        gestureRecognizer.updateThresholds(pinchThreshold, moveThreshold)
+        val haptic = prefs.getBoolean(PrefsKeys.HAPTIC_FEEDBACK, PrefsKeys.DEFAULT_HAPTIC)
         volumeController.hapticEnabled = haptic
+        screenController.hapticEnabled = haptic
     }
 
     private fun setServiceRunning(running: Boolean) {
-        getSharedPreferences("justtrack", Context.MODE_PRIVATE)
+        getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putBoolean(MainActivity.PREF_SERVICE_RUNNING, running)
+            .putBoolean(PrefsKeys.SERVICE_RUNNING, running)
             .apply()
     }
 
-    private fun setupHandLandmarker() {
-        try {
-            val baseOptions = BaseOptions.builder()
-                .setModelAssetPath(MODEL_ASSET)
-                .build()
+    private fun saveControlMode(mode: ControlMode) {
+        PreferenceManager.getDefaultSharedPreferences(this)
+            .edit()
+            .putString(PrefsKeys.CONTROL_MODE, mode.name)
+            .apply()
+    }
 
-            val options = HandLandmarker.HandLandmarkerOptions.builder()
-                .setBaseOptions(baseOptions)
-                .setMinHandDetectionConfidence(0.5f)
-                .setMinHandPresenceConfidence(0.5f)
-                .setMinTrackingConfidence(0.5f)
-                .setNumHands(1)
-                .setRunningMode(com.google.mediapipe.tasks.vision.core.RunningMode.IMAGE)
-                .build()
-
-            handLandmarker = HandLandmarker.createFromOptions(this, options)
-            if (BuildConfig.DEBUG) Log.d(TAG, "HandLandmarker initialized")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to init HandLandmarker", e)
+    private fun showToast(message: String) {
+        mainHandler.post {
+            Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -133,11 +110,11 @@ class GestureService : Service(), LifecycleOwner {
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
 
-            val resolutionSelector = androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+            val resolutionSelector = ResolutionSelector.Builder()
                 .setResolutionStrategy(
-                    androidx.camera.core.resolutionselector.ResolutionStrategy(
+                    ResolutionStrategy(
                         android.util.Size(640, 480),
-                        androidx.camera.core.resolutionselector.ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
                     )
                 ).build()
 
@@ -147,7 +124,43 @@ class GestureService : Service(), LifecycleOwner {
                 .build()
 
             imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                processFrame(imageProxy)
+                val result = engine.processFrame(imageProxy) ?: return@setAnalyzer
+
+                if (result.activationChanged) {
+                    if (result.isActivated) {
+                        volumeController.vibrateActivation()
+                        showToast(getString(R.string.toast_activated))
+                    } else {
+                        showToast(getString(R.string.toast_deactivated))
+                    }
+                }
+
+                if (result.enteredVolumeMode && result.controlMode == ControlMode.MEDIA) {
+                    volumeController.beginSmoothVolume()
+                }
+
+                when (val action = result.action) {
+                    is GestureAction.ModeSwitch -> {
+                        saveControlMode(result.controlMode)
+                        val msg = if (result.controlMode == ControlMode.SCREEN)
+                            getString(R.string.toast_mode_screen)
+                        else getString(R.string.toast_mode_media)
+                        showToast(msg)
+                    }
+                    is GestureAction.VolumeSet,
+                    is GestureAction.PlayPause,
+                    is GestureAction.NextTrack,
+                    is GestureAction.PrevTrack -> volumeController.dispatchAction(action)
+
+                    is GestureAction.SwipeUp,
+                    is GestureAction.SwipeDown,
+                    is GestureAction.SwipeLeft,
+                    is GestureAction.SwipeRight,
+                    is GestureAction.TapScreen,
+                    is GestureAction.DoubleTapScreen -> screenController.dispatchAction(action)
+
+                    is GestureAction.None -> {}
+                }
             }
 
             val cameraSelector = CameraSelector.Builder()
@@ -158,9 +171,8 @@ class GestureService : Service(), LifecycleOwner {
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(this, cameraSelector, imageAnalysis)
                 cameraRunning = true
-                if (BuildConfig.DEBUG) Log.d(TAG, "Service camera started")
             } catch (e: Exception) {
-                Log.e(TAG, "Camera bind failed", e)
+                if (BuildConfig.DEBUG) Log.e(TAG, "Camera bind failed", e)
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -170,65 +182,7 @@ class GestureService : Service(), LifecycleOwner {
         cameraProviderFuture.addListener({
             cameraProviderFuture.get().unbindAll()
             cameraRunning = false
-            if (BuildConfig.DEBUG) Log.d(TAG, "Service camera stopped")
         }, ContextCompat.getMainExecutor(this))
-    }
-
-    private fun processFrame(imageProxy: ImageProxy) {
-        frameCount++
-        if (frameCount % 2 != 0) {
-            imageProxy.close()
-            return
-        }
-
-        if (handLandmarker == null) {
-            imageProxy.close()
-            return
-        }
-
-        var bitmap: Bitmap? = null
-        var rotatedBitmap: Bitmap? = null
-        try {
-            bitmap = imageProxy.toBitmap()
-            val rotation = imageProxy.imageInfo.rotationDegrees
-            rotatedBitmap = if (rotation != 0) {
-                val matrix = android.graphics.Matrix()
-                matrix.postRotate(rotation.toFloat())
-                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-            } else {
-                bitmap
-            }
-            val mpImage = BitmapImageBuilder(rotatedBitmap).build()
-            val result: HandLandmarkerResult = handLandmarker!!.detect(mpImage)
-
-            if (result.landmarks().isNotEmpty()) {
-                val landmarks = result.landmarks()[0]
-                val action = gestureRecognizer.process(landmarks)
-
-                val nowActivated = gestureRecognizer.isActivated
-                if (nowActivated && !wasActivated) {
-                    volumeController.vibrateActivation()
-                }
-                wasActivated = nowActivated
-
-                when (action) {
-                    GestureAction.VOLUME_UP -> volumeController.volumeUp()
-                    GestureAction.VOLUME_DOWN -> volumeController.volumeDown()
-                    GestureAction.PLAY_PAUSE -> volumeController.playPause()
-                    GestureAction.NEXT_TRACK -> volumeController.nextTrack()
-                    GestureAction.PREV_TRACK -> volumeController.prevTrack()
-                    GestureAction.NONE -> {}
-                }
-            } else {
-                gestureRecognizer.process(emptyList())
-            }
-        } catch (e: Exception) {
-            if (BuildConfig.DEBUG) Log.e(TAG, "Frame processing error", e)
-        } finally {
-            if (rotatedBitmap != null && rotatedBitmap != bitmap) rotatedBitmap.recycle()
-            bitmap?.recycle()
-            imageProxy.close()
-        }
     }
 
     private fun createNotificationChannel() {
@@ -240,15 +194,21 @@ class GestureService : Service(), LifecycleOwner {
             ).apply {
                 description = getString(R.string.notif_channel_desc)
             }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
         }
     }
 
     private fun buildNotification(): Notification {
-        val pendingIntent = PendingIntent.getActivity(
+        val openIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val stopIntent = PendingIntent.getService(
+            this, 1,
+            Intent(this, GestureService::class.java).apply { action = ACTION_STOP_TRACKING },
             PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -256,7 +216,8 @@ class GestureService : Service(), LifecycleOwner {
             .setContentTitle(getString(R.string.notif_title))
             .setContentText(getString(R.string.notif_text))
             .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(openIntent)
+            .addAction(android.R.drawable.ic_media_pause, getString(R.string.notif_stop), stopIntent)
             .setOngoing(true)
             .build()
     }

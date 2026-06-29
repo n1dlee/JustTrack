@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="hand_entries">
+        <item>@string/hand_both</item>
+        <item>@string/hand_left</item>
+        <item>@string/hand_right</item>
+    </string-array>
+    <string-array name="hand_values">
+        <item>both</item>
+        <item>Left</item>
+        <item>Right</item>
+    </string-array>
+</resources>

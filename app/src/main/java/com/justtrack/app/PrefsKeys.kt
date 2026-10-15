@@ -13,6 +13,7 @@ object PrefsKeys {
     const val DEFAULT_MAIN_HAND = "both"
     const val DEFAULT_AUTO_START = false
 
-    fun pinchThreshold(sensitivity: Int): Float = 0.01f + sensitivity * 0.01f
+    /** Thumb-index distance as a fraction of palm length; 5 -> 0.20 (fingertips touching). */
+    fun pinchThreshold(sensitivity: Int): Float = 0.10f + sensitivity * 0.02f
     fun moveThreshold(sensitivity: Int): Float = 0.09f - sensitivity * 0.008f
 }

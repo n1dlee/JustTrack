@@ -16,12 +16,19 @@ class PinchVolumeGestureTest {
         gesture = PinchVolumeGesture(timeProvider = { fakeTime })
     }
 
+    /** Wrist 0.2 below the middle knuckle (landmark 9 at y=0.5): palm length 0.2. */
+    private val WRIST = NormalizedLandmark.create(0.5f, 0.7f, 0f)
+
+    private fun blankHand(): MutableList<NormalizedLandmark> =
+        MutableList(21) { i -> if (i == 0) WRIST else NormalizedLandmark.create(0.5f, 0.5f, 0f) }
+
     private fun makeLandmarks(
         thumbX: Float, thumbY: Float,
         indexX: Float, indexY: Float
     ): List<NormalizedLandmark> {
         return List(21) { i ->
             when (i) {
+                0 -> WRIST
                 4 -> NormalizedLandmark.create(thumbX, thumbY, 0f)
                 8 -> NormalizedLandmark.create(indexX, indexY, 0f)
                 else -> NormalizedLandmark.create(0.5f, 0.5f, 0f)
@@ -32,6 +39,7 @@ class PinchVolumeGestureTest {
     private fun makeOpenHandLandmarks(): List<NormalizedLandmark> {
         return List(21) { i ->
             when (i) {
+                0 -> WRIST
                 4 -> NormalizedLandmark.create(0.15f, 0.4f, 0f)
                 8 -> NormalizedLandmark.create(0.30f, 0.2f, 0f)
                 12 -> NormalizedLandmark.create(0.50f, 0.15f, 0f)
@@ -70,7 +78,7 @@ class PinchVolumeGestureTest {
     }
 
     private fun makePeaceSignLandmarks(): List<NormalizedLandmark> {
-        val lm = MutableList(21) { NormalizedLandmark.create(0.5f, 0.5f, 0f) }
+        val lm = blankHand()
         setFinger(lm, 5, 6, 8, 0.40f, 0.5f, extended = true)    // index
         setFinger(lm, 9, 10, 12, 0.50f, 0.5f, extended = true)  // middle
         setFinger(lm, 13, 14, 16, 0.60f, 0.5f, extended = false) // ring
@@ -79,7 +87,7 @@ class PinchVolumeGestureTest {
     }
 
     private fun makeThumbsUpLandmarks(): List<NormalizedLandmark> {
-        val lm = MutableList(21) { NormalizedLandmark.create(0.5f, 0.5f, 0f) }
+        val lm = blankHand()
         lm[3] = NormalizedLandmark.create(0.45f, 0.35f, 0f)  // thumb IP
         lm[4] = NormalizedLandmark.create(0.45f, 0.20f, 0f)  // thumb TIP (above IP = pointing up)
         setFinger(lm, 5, 6, 8, 0.45f, 0.5f, extended = false)
@@ -90,7 +98,7 @@ class PinchVolumeGestureTest {
     }
 
     private fun makeThumbsDownLandmarks(): List<NormalizedLandmark> {
-        val lm = MutableList(21) { NormalizedLandmark.create(0.5f, 0.5f, 0f) }
+        val lm = blankHand()
         lm[3] = NormalizedLandmark.create(0.45f, 0.55f, 0f)  // thumb IP
         lm[4] = NormalizedLandmark.create(0.45f, 0.70f, 0f)  // thumb TIP (below IP = pointing down)
         setFinger(lm, 5, 6, 8, 0.45f, 0.5f, extended = false)
@@ -100,16 +108,22 @@ class PinchVolumeGestureTest {
         return lm
     }
 
-    private fun makeFistLandmarks(): List<NormalizedLandmark> {
-        val lm = MutableList(21) { NormalizedLandmark.create(0.5f, 0.5f, 0f) }
-        lm[3] = NormalizedLandmark.create(0.48f, 0.40f, 0f)  // thumb IP (below tip, so thumb is not "up")
-        lm[4] = NormalizedLandmark.create(0.48f, 0.48f, 0f)  // thumb TIP (close to index PIP, tucked)
-        setFinger(lm, 5, 6, 8, 0.45f, 0.5f, extended = false)
+    /** Index finger up, middle/ring/pinky folded, thumb resting away from the index tip. */
+    private fun makePointingLandmarks(shiftX: Float = 0f): List<NormalizedLandmark> {
+        val lm = blankHand()
+        lm[3] = NormalizedLandmark.create(0.55f, 0.55f, 0f)  // thumb IP
+        lm[4] = NormalizedLandmark.create(0.55f, 0.52f, 0f)  // thumb TIP (sideways, not up/down)
+        setFinger(lm, 5, 6, 8, 0.45f, 0.5f, extended = true)
         setFinger(lm, 9, 10, 12, 0.50f, 0.5f, extended = false)
         setFinger(lm, 13, 14, 16, 0.60f, 0.5f, extended = false)
         setFinger(lm, 17, 18, 20, 0.65f, 0.5f, extended = false)
-        return lm
+        if (shiftX == 0f) return lm
+        return lm.map { NormalizedLandmark.create(it.x() + shiftX, it.y(), it.z()) }
     }
+
+    /** Cursor position for the index tip of [makePointingLandmarks] (x=0.45, y=0.30). */
+    private val pointerCursorX = CursorMapping.screenX(0.45f)
+    private val pointerCursorY = CursorMapping.screenY(0.30f)
 
     private fun activateSystem() {
         gesture.process(makeOpenHandLandmarks())
@@ -709,7 +723,8 @@ class PinchVolumeGestureTest {
     @Test
     fun `pinch is only entered below the threshold`() {
         activateSystem()
-        val nearlyClosed = makeLandmarks(0.5f, 0.5f, 0.56f, 0.5f) // distance 0.06 > 0.05
+        // 0.06 apart with a 0.2 palm = 0.30 of the palm: fingers not touching
+        val nearlyClosed = makeLandmarks(0.5f, 0.5f, 0.56f, 0.5f)
         confirmEntry(nearlyClosed)
         assertThat(gesture.isPinching).isFalse()
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
@@ -719,7 +734,8 @@ class PinchVolumeGestureTest {
     fun `held pinch tolerates jitter just above the entry threshold`() {
         activateSystem()
         enterVolumeMode(0.5f)
-        val jittered = makeLandmarks(0.5f, 0.5f, 0.56f, 0.5f) // 0.06: above entry, below release
+        // 0.048 apart = 0.24 of the palm: above the 0.20 entry, below the 0.27 release
+        val jittered = makeLandmarks(0.5f, 0.5f, 0.548f, 0.5f)
         val result = gesture.process(jittered)
         assertThat(result).isInstanceOf(GestureAction.VolumeSet::class.java)
         assertThat(gesture.isPinching).isTrue()
@@ -791,54 +807,62 @@ class PinchVolumeGestureTest {
     }
 
     // ============================
-    // Cursor mode (fist)
+    // Cursor mode (index finger pointer)
     // ============================
 
-    @Test
-    fun `fist enters cursor mode in control mode`() {
+    private fun enterPointer() {
         activateSystem()
         gesture.setMode(ControlMode.CONTROL)
-        confirmEntry(makeFistLandmarks())
+        confirmEntry(makePointingLandmarks())
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
     }
 
     @Test
-    fun `fist needs enough frames before entering cursor mode`() {
+    fun `pointing finger enters cursor mode in control mode`() {
+        enterPointer()
+        assertThat(gesture.isPointing).isTrue()
+    }
+
+    @Test
+    fun `pointer needs enough frames before entering cursor mode`() {
         activateSystem()
         gesture.setMode(ControlMode.CONTROL)
-        gesture.process(makeFistLandmarks())
+        gesture.process(makePointingLandmarks())
         fakeTime += PinchVolumeGesture.POSE_CONFIRM_MS
-        gesture.process(makeFistLandmarks())
+        gesture.process(makePointingLandmarks())
         assertThat(gesture.state).isNotEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
     }
 
     @Test
-    fun `fist needs enough time before entering cursor mode`() {
+    fun `pointer needs enough time before entering cursor mode`() {
         activateSystem()
         gesture.setMode(ControlMode.CONTROL)
         repeat(PinchVolumeGesture.POSE_MIN_FRAMES * 2) {
-            gesture.process(makeFistLandmarks()) // many frames, no time passing
+            gesture.process(makePointingLandmarks()) // many frames, no time passing
         }
         assertThat(gesture.state).isNotEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
     }
 
     @Test
-    fun `single misdetected frame does not drop the cursor`() {
+    fun `pointer does not enter cursor mode in media mode`() {
         activateSystem()
-        gesture.setMode(ControlMode.CONTROL)
-        confirmEntry(makeFistLandmarks())
-        gesture.process(fingersOpen())
-        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
-        gesture.process(makeFistLandmarks())
-        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
+        gesture.setMode(ControlMode.MEDIA)
+        confirmEntry(makePointingLandmarks())
+        assertThat(gesture.state).isNotEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
+    }
+
+    @Test
+    fun `cursor follows the index fingertip`() {
+        enterPointer()
+        val result = gesture.process(makePointingLandmarks()) as GestureAction.CursorMove
+        assertThat(result.x).isWithin(1e-4f).of(pointerCursorX)
+        assertThat(result.y).isWithin(1e-4f).of(pointerCursorY)
     }
 
     @Test
     fun `cursor stays within the screen range`() {
-        activateSystem()
-        gesture.setMode(ControlMode.CONTROL)
-        confirmEntry(makeFistLandmarks())
-        val result = gesture.process(makeFistLandmarks()) as GestureAction.CursorMove
+        enterPointer()
+        val result = gesture.process(makePointingLandmarks(shiftX = -0.4f)) as GestureAction.CursorMove
         assertThat(result.x).isAtLeast(0f)
         assertThat(result.x).isAtMost(1f)
         assertThat(result.y).isAtLeast(0f)
@@ -846,42 +870,70 @@ class PinchVolumeGestureTest {
     }
 
     @Test
-    fun `fist does not enter cursor mode in media mode`() {
-        activateSystem()
-        gesture.setMode(ControlMode.MEDIA)
-        gesture.process(makeFistLandmarks())
-        assertThat(gesture.state).isNotEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
-    }
-
-    @Test
-    fun `cursor mode emits CursorMove`() {
-        activateSystem()
-        gesture.setMode(ControlMode.CONTROL)
-        confirmEntry(makeFistLandmarks())
-        val result = gesture.process(makeFistLandmarks())
-        assertThat(result).isInstanceOf(GestureAction.CursorMove::class.java)
-    }
-
-    @Test
-    fun `releasing fist stores cursor position`() {
-        activateSystem()
-        gesture.setMode(ControlMode.CONTROL)
-        confirmEntry(makeFistLandmarks())
+    fun `single misdetected frame does not drop the cursor`() {
+        enterPointer()
+        gesture.process(fingersOpen())
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
+        gesture.process(makePointingLandmarks())
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
+    }
 
+    @Test
+    fun `touching the thumb while pointing clicks at the cursor immediately`() {
+        enterPointer()
+        gesture.process(makePointingLandmarks())
+        fakeTime += 200
+        gesture.process(pinchClose())
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.PINCHED)
+        fakeTime += 100
+        val result = gesture.process(fingersOpen())
+        assertThat(result).isEqualTo(GestureAction.TapAt(pointerCursorX, pointerCursorY))
+        assertThat(gesture.hasCursorPosition).isFalse()
+    }
+
+    @Test
+    fun `click uses the cursor from before the finger started to bend`() {
+        enterPointer()
+        gesture.process(makePointingLandmarks())          // cursor sample at the target
+        fakeTime += 150
+        gesture.process(makePointingLandmarks(shiftX = -0.1f)) // finger drifts while bending
+        fakeTime += 50
+        gesture.process(pinchClose())
+        fakeTime += 100
+        val result = gesture.process(fingersOpen()) as GestureAction.TapAt
+        assertThat(result.x).isWithin(1e-4f).of(pointerCursorX)
+        assertThat(result.y).isWithin(1e-4f).of(pointerCursorY)
+    }
+
+    @Test
+    fun `lowering the pointer parks the cursor`() {
+        enterPointer()
+        gesture.process(makePointingLandmarks())
         repeat(PinchVolumeGesture.CURSOR_RELEASE_FRAMES) { gesture.process(fingersOpen()) }
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
         assertThat(gesture.hasCursorPosition).isTrue()
+        assertThat(gesture.isPointing).isFalse()
     }
 
     @Test
-    fun `tap after cursor uses TapAt with stored position`() {
-        activateSystem()
-        gesture.setMode(ControlMode.CONTROL)
-
-        confirmEntry(makeFistLandmarks())
+    fun `touch right after lowering the pointer clicks at the parked cursor`() {
+        enterPointer()
+        gesture.process(makePointingLandmarks())
         repeat(PinchVolumeGesture.CURSOR_RELEASE_FRAMES) { gesture.process(fingersOpen()) }
-        assertThat(gesture.hasCursorPosition).isTrue()
+        fakeTime += 100
+        gesture.process(pinchClose())
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.PINCHED)
+        fakeTime += 100
+        val result = gesture.process(fingersOpen())
+        assertThat(result).isEqualTo(GestureAction.TapAt(pointerCursorX, pointerCursorY))
+    }
+
+    @Test
+    fun `later tap still uses the parked cursor`() {
+        enterPointer()
+        gesture.process(makePointingLandmarks())
+        repeat(PinchVolumeGesture.CURSOR_RELEASE_FRAMES) { gesture.process(fingersOpen()) }
+        fakeTime += PinchVolumeGesture.POINTER_CLICK_WINDOW_MS + 100
 
         pinchDown()
         fakeTime += 100
@@ -908,17 +960,31 @@ class PinchVolumeGestureTest {
 
     @Test
     fun `cursor mode resets on hand loss`() {
-        activateSystem()
-        gesture.setMode(ControlMode.CONTROL)
-        confirmEntry(makeFistLandmarks())
-        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
-
+        enterPointer()
         val small = List(10) { NormalizedLandmark.create(0.5f, 0.5f, 0f) }
         gesture.process(small)
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE) // brief dropout tolerated
         fakeTime += PinchVolumeGesture.HAND_LOST_GRACE_MS + 50
         gesture.process(small)
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
+    }
+
+    // ============================
+    // Pinch distance is relative to the hand
+    // ============================
+
+    @Test
+    fun `same finger gap counts as touching only for a big enough hand`() {
+        activateSystem()
+        // 0.03 gap: touching for a 0.2 palm (ratio 0.15) ...
+        gesture.process(makeLandmarks(0.5f, 0.5f, 0.53f, 0.5f))
+        assertThat(gesture.isPinching).isTrue()
+        gesture.process(fingersOpen())
+        // ... but not for a hand twice as far away (palm 0.1, ratio 0.3)
+        val farHand = makeLandmarks(0.5f, 0.5f, 0.53f, 0.5f).toMutableList()
+        farHand[0] = NormalizedLandmark.create(0.5f, 0.6f, 0f)
+        gesture.process(farHand)
+        assertThat(gesture.isPinching).isFalse()
     }
 
     // ============================
@@ -950,7 +1016,7 @@ class PinchVolumeGestureTest {
     fun `isPeaceSign detects extended fingers regardless of hand rotation`() {
         // same peace-sign shape as makePeaceSignLandmarks, but rotated 90 degrees:
         // fingers point sideways (varying x, constant y) instead of up (constant x, varying y)
-        val lm = MutableList(21) { NormalizedLandmark.create(0.5f, 0.5f, 0f) }
+        val lm = blankHand()
         lm[5] = NormalizedLandmark.create(0.60f, 0.40f, 0f)
         lm[6] = NormalizedLandmark.create(0.52f, 0.40f, 0f)
         lm[8] = NormalizedLandmark.create(0.40f, 0.40f, 0f)
@@ -982,18 +1048,31 @@ class PinchVolumeGestureTest {
     }
 
     @Test
-    fun `isFist detects valid fist`() {
-        assertThat(gesture.isFist(makeFistLandmarks())).isTrue()
+    fun `isPointing detects index finger up`() {
+        assertThat(gesture.isPointing(makePointingLandmarks())).isTrue()
     }
 
     @Test
-    fun `isFist rejects open hand`() {
-        assertThat(gesture.isFist(makeOpenHandLandmarks())).isFalse()
+    fun `isPointing rejects open hand`() {
+        assertThat(gesture.isPointing(makeOpenHandLandmarks())).isFalse()
     }
 
     @Test
-    fun `isFist rejects thumbs up`() {
-        assertThat(gesture.isFist(makeThumbsUpLandmarks())).isFalse()
+    fun `isPointing rejects peace sign`() {
+        assertThat(gesture.isPointing(makePeaceSignLandmarks())).isFalse()
+    }
+
+    @Test
+    fun `isPointing rejects thumbs up`() {
+        assertThat(gesture.isPointing(makeThumbsUpLandmarks())).isFalse()
+    }
+
+    @Test
+    fun `pointing is not a peace sign or thumbs pose`() {
+        val pointing = makePointingLandmarks()
+        assertThat(gesture.isPeaceSign(pointing)).isFalse()
+        assertThat(gesture.isThumbsUp(pointing)).isFalse()
+        assertThat(gesture.isThumbsDown(pointing)).isFalse()
     }
 
     // ============================

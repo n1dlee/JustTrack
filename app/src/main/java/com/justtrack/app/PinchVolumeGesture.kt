@@ -39,11 +39,17 @@ class PinchVolumeGesture(
     private val timeProvider: () -> Long = { SystemClock.elapsedRealtime() }
 ) {
 
-    private enum class PoseCandidate { NONE, FIST, PEACE, THUMBS_UP, THUMBS_DOWN, PINCH }
+    private enum class PoseCandidate { NONE, POINT, PEACE, THUMBS_UP, THUMBS_DOWN, PINCH }
 
     companion object {
-        const val DEFAULT_PINCH_THRESHOLD = 0.05f
+        /**
+         * Thumb-to-index distance, as a fraction of the palm length (wrist to
+         * middle-finger knuckle), below which the fingers count as touching.
+         * Relative to the hand so it does not change with distance to the camera.
+         */
+        const val DEFAULT_PINCH_THRESHOLD = 0.20f
         const val DEFAULT_MOVE_THRESHOLD = 0.04f
+        private const val WRIST = 0
         private const val THUMB_TIP = 4
         private const val THUMB_IP = 3
         private const val INDEX_MCP = 5
@@ -71,13 +77,18 @@ class PinchVolumeGesture(
         const val POSE_REARM_FRAMES = 3
         const val CURSOR_RELEASE_FRAMES = 2
         const val HAND_LOST_GRACE_MS = 250L
-        private const val PINCH_RELEASE_FACTOR = 1.3f
+        /** Cursor is taken from this long before the click, before the finger bent. */
+        const val CLICK_LOOKBACK_MS = 120L
+        /** A pinch this soon after lowering the pointer clicks at the cursor right away. */
+        const val POINTER_CLICK_WINDOW_MS = 500L
+        private const val MIN_HAND_SCALE = 0.02f
+        private const val PINCH_RELEASE_FACTOR = 1.35f
         private const val SWIPE_THRESHOLD_FACTOR = 2.5f
         private const val OPEN_HAND_SPREAD_THRESHOLD = 0.08f
         private const val OPEN_HAND_SPAN_THRESHOLD = 0.25f
-        private const val FIST_THUMB_THRESHOLD = 0.10f
+        private const val THUMB_EXTENDED_THRESHOLD = 0.10f
         private const val CURSOR_TIMEOUT_MS = 5000L
-        private const val CURSOR_INPUT_MARGIN = 0.1f
+        private const val CURSOR_HISTORY_SIZE = 16
         private const val FINGER_MARGIN = 0.04f
         private const val FINGER_EXTENDED_ANGLE_DEG = 35f
         private const val FINGER_FOLDED_ANGLE_DEG = 55f
@@ -127,6 +138,13 @@ class PinchVolumeGesture(
     private var cursorReleaseFrames = 0
     private val cursorFilterX = OneEuroFilter()
     private val cursorFilterY = OneEuroFilter()
+    private val cursorHistoryTime = LongArray(CURSOR_HISTORY_SIZE)
+    private val cursorHistoryX = FloatArray(CURSOR_HISTORY_SIZE)
+    private val cursorHistoryY = FloatArray(CURSOR_HISTORY_SIZE)
+    private var cursorHistoryCount = 0
+    private var cursorHistoryNext = 0
+    private var pointerExitTime = Long.MIN_VALUE / 2
+    private var clickFromPointer = false
     private var poseCandidateType = PoseCandidate.NONE
     private var poseCandidateFrames = 0
     private var poseCandidateStart = 0L
@@ -136,6 +154,9 @@ class PinchVolumeGesture(
     private var lastPalmY = 0f
     private var hasLastPalm = false
     private var handLostSince = -1L
+
+    /** True while the pointer (index finger up) is steering the cursor. */
+    val isPointing: Boolean get() = state == State.CURSOR_MODE
 
     /** Whether thumb and index are currently considered touching (with hysteresis). */
     var isPinching = false
@@ -187,7 +208,8 @@ class PinchVolumeGesture(
 
         val thumbTip = landmarks[THUMB_TIP]
         val indexTip = landmarks[INDEX_TIP]
-        val pinchDistance = distance(thumbTip, indexTip)
+        val handScale = maxOf(distance(landmarks[WRIST], landmarks[MIDDLE_MCP]), MIN_HAND_SCALE)
+        val pinchDistance = distance(thumbTip, indexTip) / handScale
         val midY = (thumbTip.y() + indexTip.y()) / 2f
         val midX = (thumbTip.x() + indexTip.x()) / 2f
         // Enter below the threshold, leave only clearly above it, so jitter around
@@ -217,6 +239,13 @@ class PinchVolumeGesture(
 
             State.PINCHED -> {
                 if (!fingersClose) {
+                    if (now - pinchStartTime < TAP_MAX_DURATION_MS && clickFromPointer) {
+                        // Pointer click: no need to wait for a double/triple tap.
+                        clickFromPointer = false
+                        lastGestureTime = now
+                        return clickAtCursor()
+                    }
+                    clickFromPointer = false
                     if (now - pinchStartTime < TAP_MAX_DURATION_MS) {
                         tapCount++
                         lastTapTime = now
@@ -231,6 +260,7 @@ class PinchVolumeGesture(
                     }
                 } else if (now - pinchStartTime > TAP_MAX_DURATION_MS) {
                     // A held pinch is a drag, never part of a tap series.
+                    clickFromPointer = false
                     clearPendingTaps()
                     state = State.VOLUME_MODE
                     swipeOriginX = midX
@@ -275,14 +305,7 @@ class PinchVolumeGesture(
                     lastGestureTime = now
                     return resolveTaps()
                 }
-                if (fingersClose) {
-                    state = State.PINCHED
-                    pinchStartTime = now
-                    volumeStartY = midY
-                    dragStartX = midX
-                    dragStartY = midY
-                    lastGestureTime = now
-                }
+                if (fingersClose) startPinch(now, midX, midY, fromPointer = false)
             }
 
             State.MODE_SWITCHING -> {
@@ -317,20 +340,28 @@ class PinchVolumeGesture(
 
             State.CURSOR_MODE -> {
                 lastGestureTime = now
-                if (!isFist(landmarks)) {
-                    // Require the fist to be gone for a couple of frames so a single
+                if (fingersClose) {
+                    // Thumb touched the index finger: click where the pointer was a
+                    // moment ago, before the finger started bending towards the thumb.
+                    freezeCursor(now)
+                    startPinch(now, midX, midY, fromPointer = true)
+                    return GestureAction.None
+                }
+                if (!isPointing(landmarks)) {
+                    // Require the pose to be gone for a couple of frames so a single
                     // misdetected frame does not drop the cursor mid-move.
                     if (++cursorReleaseFrames >= CURSOR_RELEASE_FRAMES) {
-                        hasCursorPosition = true
-                        cursorSetTime = now
+                        freezeCursor(now)
+                        pointerExitTime = now
                         state = State.IDLE
                     }
                     return GestureAction.None
                 }
                 cursorReleaseFrames = 0
-                val palm = landmarks[PALM_CENTER]
-                cursorX = cursorFilterX.filter(remapCursorInput(1f - palm.x()), now)
-                cursorY = cursorFilterY.filter(remapCursorInput(palm.y()), now)
+                val tip = landmarks[INDEX_TIP]
+                cursorX = cursorFilterX.filter(CursorMapping.screenX(tip.x()), now)
+                cursorY = cursorFilterY.filter(CursorMapping.screenY(tip.y()), now)
+                recordCursor(now)
                 return GestureAction.CursorMove(cursorX, cursorY)
             }
         }
@@ -352,6 +383,16 @@ class PinchVolumeGesture(
             hasCursorPosition = false
         }
 
+        // Pinch right after lowering the pointer: click at the cursor immediately,
+        // without waiting for pose confirmation.
+        if (fingersClose && hasCursorPosition && now - pointerExitTime <= POINTER_CLICK_WINDOW_MS) {
+            pointerExitTime = Long.MIN_VALUE / 2
+            hasLastPalm = false
+            resetPoseCandidate()
+            startPinch(now, midX, midY, fromPointer = true)
+            return
+        }
+
         val palm = landmarks[PALM_CENTER]
         val palmMoved = if (hasLastPalm) dist(palm.x(), palm.y(), lastPalmX, lastPalmY) else 0f
         val isStill = !hasLastPalm || palmMoved < POSE_STILLNESS_THRESHOLD
@@ -360,11 +401,11 @@ class PinchVolumeGesture(
         hasLastPalm = true
 
         var candidate = when {
-            controlMode == ControlMode.CONTROL && isFist(landmarks) -> PoseCandidate.FIST
+            fingersClose && !allFingersFolded(landmarks) -> PoseCandidate.PINCH
+            controlMode == ControlMode.CONTROL && isPointing(landmarks) -> PoseCandidate.POINT
             isPeaceSign(landmarks) -> PoseCandidate.PEACE
             isThumbsUp(landmarks) -> PoseCandidate.THUMBS_UP
             isThumbsDown(landmarks) -> PoseCandidate.THUMBS_DOWN
-            fingersClose && !allFingersFolded(landmarks) -> PoseCandidate.PINCH
             else -> PoseCandidate.NONE
         }
 
@@ -403,9 +444,10 @@ class PinchVolumeGesture(
     private fun enterPose(pose: PoseCandidate, now: Long, midX: Float, midY: Float) {
         lastGestureTime = now
         when (pose) {
-            PoseCandidate.FIST -> {
+            PoseCandidate.POINT -> {
                 state = State.CURSOR_MODE
                 cursorReleaseFrames = 0
+                cursorHistoryCount = 0
                 cursorFilterX.reset()
                 cursorFilterY.reset()
             }
@@ -418,13 +460,7 @@ class PinchVolumeGesture(
                 thumbIsUp = pose == PoseCandidate.THUMBS_UP
                 thumbGestureStartTime = now
             }
-            PoseCandidate.PINCH -> {
-                state = State.PINCHED
-                pinchStartTime = now
-                volumeStartY = midY
-                dragStartX = midX
-                dragStartY = midY
-            }
+            PoseCandidate.PINCH -> startPinch(now, midX, midY, fromPointer = false)
             PoseCandidate.NONE -> {}
         }
     }
@@ -462,14 +498,17 @@ class PinchVolumeGesture(
     fun isThumbsDown(landmarks: List<NormalizedLandmark>): Boolean {
         if (landmarks.size < 21) return false
         val thumbDown = landmarks[THUMB_TIP].y() > landmarks[THUMB_IP].y() + FINGER_MARGIN
-        val thumbExtended = distance(landmarks[THUMB_TIP], landmarks[INDEX_PIP]) > FIST_THUMB_THRESHOLD
+        val thumbExtended = distance(landmarks[THUMB_TIP], landmarks[INDEX_PIP]) > THUMB_EXTENDED_THRESHOLD
         return thumbDown && thumbExtended && allFingersFolded(landmarks)
     }
 
-    fun isFist(landmarks: List<NormalizedLandmark>): Boolean {
+    /** Index finger extended; middle, ring and pinky folded (pointing up). */
+    fun isPointing(landmarks: List<NormalizedLandmark>): Boolean {
         if (landmarks.size < 21) return false
-        val thumbTucked = distance(landmarks[THUMB_TIP], landmarks[INDEX_PIP]) < FIST_THUMB_THRESHOLD
-        return thumbTucked && allFingersFolded(landmarks)
+        return isFingerExtended(INDEX_MCP, INDEX_PIP, INDEX_TIP, landmarks) &&
+               isFingerFolded(MIDDLE_MCP, MIDDLE_PIP, MIDDLE_TIP, landmarks) &&
+               isFingerFolded(RING_MCP, RING_PIP, RING_TIP, landmarks) &&
+               isFingerFolded(PINKY_MCP, PINKY_PIP, PINKY_TIP, landmarks)
     }
 
     private fun allFingersFolded(landmarks: List<NormalizedLandmark>): Boolean {
@@ -504,9 +543,52 @@ class PinchVolumeGesture(
         return Math.toDegrees(acos(cos.toDouble())).toFloat()
     }
 
-    /** Maps the reachable middle of the camera frame onto the full 0..1 range. */
-    private fun remapCursorInput(value: Float): Float =
-        ((value - CURSOR_INPUT_MARGIN) / (1f - 2f * CURSOR_INPUT_MARGIN)).coerceIn(0f, 1f)
+    private fun startPinch(now: Long, midX: Float, midY: Float, fromPointer: Boolean) {
+        state = State.PINCHED
+        pinchStartTime = now
+        volumeStartY = midY
+        dragStartX = midX
+        dragStartY = midY
+        lastGestureTime = now
+        clickFromPointer = fromPointer
+    }
+
+    private fun recordCursor(now: Long) {
+        cursorHistoryTime[cursorHistoryNext] = now
+        cursorHistoryX[cursorHistoryNext] = cursorX
+        cursorHistoryY[cursorHistoryNext] = cursorY
+        cursorHistoryNext = (cursorHistoryNext + 1) % CURSOR_HISTORY_SIZE
+        if (cursorHistoryCount < CURSOR_HISTORY_SIZE) cursorHistoryCount++
+    }
+
+    /**
+     * Fixes the cursor at the newest position recorded at least [CLICK_LOOKBACK_MS]
+     * ago (or the oldest one available), so the bend of the finger at the end of
+     * pointing does not drag the click point.
+     */
+    private fun freezeCursor(now: Long) {
+        if (cursorHistoryCount > 0) {
+            val cutoff = now - CLICK_LOOKBACK_MS
+            var chosen = -1
+            for (i in 0 until cursorHistoryCount) {
+                val idx = (cursorHistoryNext - 1 - i + CURSOR_HISTORY_SIZE) % CURSOR_HISTORY_SIZE
+                chosen = idx
+                if (cursorHistoryTime[idx] <= cutoff) break
+            }
+            cursorX = cursorHistoryX[chosen]
+            cursorY = cursorHistoryY[chosen]
+        }
+        hasCursorPosition = true
+        cursorSetTime = now
+    }
+
+    private fun clickAtCursor(): GestureAction {
+        clearPendingTaps()
+        state = State.IDLE
+        if (!hasCursorPosition) return GestureAction.TapScreen
+        hasCursorPosition = false
+        return GestureAction.TapAt(cursorX, cursorY)
+    }
 
     /**
      * Called when no usable hand is in the frame. Holds that need continuous

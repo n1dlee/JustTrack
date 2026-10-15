@@ -15,7 +15,7 @@ class PrefsKeysTest {
     @Test
     fun `pinchThreshold at default sensitivity`() {
         val threshold = PrefsKeys.pinchThreshold(PrefsKeys.DEFAULT_SENSITIVITY)
-        assertThat(threshold).isWithin(0.001f).of(0.06f)
+        assertThat(threshold).isWithin(0.001f).of(0.20f)
     }
 
     @Test

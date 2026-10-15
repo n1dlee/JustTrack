@@ -397,7 +397,10 @@ class GestureService : LifecycleService() {
         )
 
         try {
-            val view = HandOverlayView(this).apply { showIdleHint = false }
+            val view = HandOverlayView(this).apply {
+                showIdleHint = false
+                landmarksInScreenSpace = true
+            }
             getSystemService(WindowManager::class.java).addView(view, params)
             overlayView = view
         } catch (e: Exception) {

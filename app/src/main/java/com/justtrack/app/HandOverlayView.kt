@@ -42,6 +42,10 @@ class HandOverlayView @JvmOverloads constructor(
     private var cursorX = 0.5f
     private var cursorY = 0.5f
     private var isCursorActive = false
+    private var isPointing = false
+    private val displaySize = android.graphics.Point()
+    private var drawOriginX = 0f
+    private var drawOriginY = 0f
     private var imageWidth = 0
     private var imageHeight = 0
     private var lastAction: GestureAction = GestureAction.None
@@ -62,6 +66,13 @@ class HandOverlayView @JvmOverloads constructor(
 
     /** The "show your palm" prompt; off for the system-wide overlay over other apps. */
     var showIdleHint = true
+
+    /**
+     * Draw the hand in screen space with the same mapping as the cursor, instead of
+     * over a camera preview. Used by the full-screen overlay over other apps, so the
+     * cursor circle sits exactly on the drawn index fingertip.
+     */
+    var landmarksInScreenSpace = false
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -209,14 +220,26 @@ class HandOverlayView @JvmOverloads constructor(
     }
 
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(200, 255, 80, 80)
+        color = Color.argb(230, 255, 80, 80)
         style = Paint.Style.STROKE
-        strokeWidth = 3f
+        strokeWidth = 4f
+    }
+
+    private val cursorFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(70, 255, 80, 80)
+        style = Paint.Style.FILL
     }
 
     private val cursorDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(200, 255, 80, 80)
+        color = Color.argb(230, 255, 80, 80)
         style = Paint.Style.FILL
+    }
+
+    private val cursorParkedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(170, 255, 80, 80)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(10f, 8f), 0f)
     }
 
     fun update(result: HandTrackingEngine.FrameResult) {
@@ -230,6 +253,7 @@ class HandOverlayView @JvmOverloads constructor(
         cursorX = result.cursorX
         cursorY = result.cursorY
         isCursorActive = result.isCursorActive
+        isPointing = result.isPointing
         imageWidth = result.imageWidth
         imageHeight = result.imageHeight
         showAction(result.action)
@@ -252,6 +276,7 @@ class HandOverlayView @JvmOverloads constructor(
         modeSwitchProgress = 0f
         thumbGestureProgress = 0f
         isCursorActive = false
+        isPointing = false
         invalidate()
     }
 
@@ -263,6 +288,11 @@ class HandOverlayView @JvmOverloads constructor(
         val h = content.height()
         val isActive = gestureState != PinchVolumeGesture.State.INACTIVE &&
                 gestureState != PinchVolumeGesture.State.ACTIVATING
+
+        ScreenMapper.displaySize(context).let { displaySize.set(it.x, it.y) }
+        getLocationOnScreen(screenLocation)
+        drawOriginX = screenLocation[0] + content.left
+        drawOriginY = screenLocation[1] + content.top
 
         canvas.withClip(content) {
             translate(content.left, content.top)
@@ -424,19 +454,27 @@ class HandOverlayView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * A circle at the cursor: filled while the index finger is steering it, dashed
+     * once it is parked and waiting for a tap. Drawn in screen space, exactly where
+     * the Accessibility tap lands.
+     */
     private fun drawCursor(canvas: Canvas) {
         if (!isCursorActive) return
 
-        val target = ScreenMapper.toScreen(context, cursorX, cursorY)
-        getLocationOnScreen(screenLocation)
+        val target = ScreenMapper.toScreen(displaySize.x, displaySize.y, cursorX, cursorY)
         val cx = target.x - screenLocation[0]
         val cy = target.y - screenLocation[1]
-        val size = 20f
+        val radius = 22f
 
-        canvas.drawCircle(cx, cy, 5f, cursorDotPaint)
-        canvas.drawLine(cx - size, cy, cx + size, cy, cursorPaint)
-        canvas.drawLine(cx, cy - size, cx, cy + size, cursorPaint)
-        canvas.drawCircle(cx, cy, size, cursorPaint)
+        if (isPointing) {
+            canvas.drawCircle(cx, cy, radius, cursorFillPaint)
+            canvas.drawCircle(cx, cy, radius, cursorPaint)
+            canvas.drawCircle(cx, cy, 4f, cursorDotPaint)
+        } else {
+            canvas.drawCircle(cx, cy, radius, cursorParkedPaint)
+            canvas.drawCircle(cx, cy, 4f, cursorDotPaint)
+        }
     }
 
     private fun drawActionFeedback(canvas: Canvas, w: Float, h: Float) {
@@ -494,6 +532,9 @@ class HandOverlayView @JvmOverloads constructor(
     }
 
     private fun mapX(normalizedX: Float, w: Float, h: Float): Float {
+        if (landmarksInScreenSpace) {
+            return CursorMapping.screenX(normalizedX, clamp = false) * (displaySize.x - 1) - drawOriginX
+        }
         val scale = imageScale(w, h)
         if (scale < 0f) return mirrorX(normalizedX) * w
         val shownWidth = imageWidth * scale
@@ -501,6 +542,9 @@ class HandOverlayView @JvmOverloads constructor(
     }
 
     private fun mapY(normalizedY: Float, w: Float, h: Float): Float {
+        if (landmarksInScreenSpace) {
+            return CursorMapping.screenY(normalizedY, clamp = false) * (displaySize.y - 1) - drawOriginY
+        }
         val scale = imageScale(w, h)
         if (scale < 0f) return normalizedY * h
         val shownHeight = imageHeight * scale

@@ -53,7 +53,8 @@ class HandTrackingEngine(context: Context) {
         val thumbGestureProgress: Float,
         val cursorX: Float,
         val cursorY: Float,
-        val isCursorActive: Boolean
+        val isCursorActive: Boolean,
+        val isPointing: Boolean
     )
 
     private val appContext = context.applicationContext
@@ -157,8 +158,8 @@ class HandTrackingEngine(context: Context) {
                     thumbGestureProgress = gestureRecognizer.thumbGestureProgress,
                     cursorX = gestureRecognizer.cursorX,
                     cursorY = gestureRecognizer.cursorY,
-                    isCursorActive = gestureRecognizer.state == PinchVolumeGesture.State.CURSOR_MODE ||
-                        gestureRecognizer.hasCursorPosition
+                    isCursorActive = gestureRecognizer.isPointing || gestureRecognizer.hasCursorPosition,
+                    isPointing = gestureRecognizer.isPointing
                 ))
             }
         } finally {
@@ -255,7 +256,8 @@ class HandTrackingEngine(context: Context) {
             thumbGestureProgress = 0f,
             cursorX = gestureRecognizer.cursorX,
             cursorY = gestureRecognizer.cursorY,
-            isCursorActive = gestureRecognizer.hasCursorPosition
+            isCursorActive = gestureRecognizer.isPointing || gestureRecognizer.hasCursorPosition,
+            isPointing = gestureRecognizer.isPointing
         )
     }
 

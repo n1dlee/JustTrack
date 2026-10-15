@@ -4,7 +4,7 @@
 
     <!-- MainActivity -->
     <string name="title">JustTrack</string>
-    <string name="gesture_hint">✋ Ладонь 1.5с → активация\n✌️ Держи 1.5с → сменить режим\n🎵 Медиа: тап = play, 2× = след., 3× = пред., зажми и веди = громкость\n🎮 Управление: тап = клик, 2× = назад, 3× = домой, зажми и веди = скролл\n👍 Держи 0.8с → список приложений\n👎 Держи 0.8с → предыдущее приложение\n✊ Кулак → веди курсор → разожми → тап = клик в точке курсора\n⏱ 10с без жестов → деактивация</string>
+    <string name="gesture_hint">✋ Ладонь 1.5с → активация\n✌️ Держи 1.5с → сменить режим\n🎵 Медиа: тап = play, 2× = след., 3× = пред., зажми и веди = громкость\n🎮 Управление: тап = клик, 2× = назад, 3× = домой, зажми и веди = скролл\n👍 Держи 0.8с → список приложений\n👎 Держи 0.8с → предыдущее приложение\n☝️ Управление: указательный вверх → кружок на кончике → коснись большим = клик\n⏱ 10с без жестов → деактивация</string>
     <string name="status_stopped">○ Остановлен</string>
     <string name="status_starting">◌ Запуск камеры…</string>
     <string name="status_running">● Активен • %1$s</string>
@@ -36,7 +36,7 @@
     <string name="settings_btn">Настройки</string>
     <string name="pref_category_gesture">Жесты</string>
     <string name="pref_pinch_sensitivity">Чувствительность захвата</string>
-    <string name="pref_pinch_sensitivity_summary">Насколько близко нужно сжать пальцы</string>
+    <string name="pref_pinch_sensitivity_summary">Меньше — пальцы должны плотно касаться, больше — срабатывает раньше</string>
     <string name="pref_move_sensitivity">Чувствительность движения</string>
     <string name="pref_move_sensitivity_summary">Насколько сильно нужно двинуть рукой</string>
     <string name="pref_category_feedback">Обратная связь</string>

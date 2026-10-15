@@ -3,13 +3,18 @@ package com.justtrack.app
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.os.SystemClock
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.preference.PreferenceManager
 import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.framework.image.MPImage
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.Delegate
+import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
+import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 
 class HandTrackingEngine(context: Context) {
 
@@ -30,16 +35,21 @@ class HandTrackingEngine(context: Context) {
         val isActivated: Boolean,
         val controlMode: ControlMode,
         val modeSwitchProgress: Float,
-        val enteredVolumeMode: Boolean
+        val enteredVolumeMode: Boolean,
+        val thumbGestureProgress: Float,
+        val cursorX: Float,
+        val cursorY: Float,
+        val isCursorActive: Boolean
     )
 
     private var handLandmarker: HandLandmarker? = null
     val gestureRecognizer = PinchVolumeGesture()
-    private var frameSkip = false
+    private val rotationMatrix = Matrix()
     @Volatile private var wasActivated = false
     private var wasInVolumeMode = false
-    private val rotationMatrix = Matrix()
+    private var lastTimestampMs = -1L
     var preferredHand: String = PrefsKeys.DEFAULT_MAIN_HAND
+    var onFrameResult: ((FrameResult) -> Unit)? = null
 
     val isModelLoaded: Boolean get() = handLandmarker != null
 
@@ -49,59 +59,48 @@ class HandTrackingEngine(context: Context) {
 
     private fun setupHandLandmarker(context: Context) {
         try {
-            val baseOptions = BaseOptions.builder()
-                .setModelAssetPath(MODEL_ASSET)
-                .build()
-
-            val options = HandLandmarker.HandLandmarkerOptions.builder()
-                .setBaseOptions(baseOptions)
-                .setMinHandDetectionConfidence(0.5f)
-                .setMinHandPresenceConfidence(0.5f)
-                .setMinTrackingConfidence(0.5f)
-                .setNumHands(1)
-                .setRunningMode(com.google.mediapipe.tasks.vision.core.RunningMode.IMAGE)
-                .build()
-
-            handLandmarker = HandLandmarker.createFromOptions(context, options)
+            createLandmarker(context, Delegate.GPU)
+            Log.i(TAG, "Using GPU delegate")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to init HandLandmarker", e)
+            Log.w(TAG, "GPU unavailable, falling back to CPU", e)
+            try {
+                createLandmarker(context, Delegate.CPU)
+            } catch (e2: Exception) {
+                Log.e(TAG, "Failed to init HandLandmarker", e2)
+            }
         }
     }
 
-    fun processFrame(imageProxy: ImageProxy): FrameResult? {
-        frameSkip = !frameSkip
-        if (frameSkip) {
-            imageProxy.close()
-            return null
-        }
+    private fun createLandmarker(context: Context, delegate: Delegate) {
+        val baseOptions = BaseOptions.builder()
+            .setModelAssetPath(MODEL_ASSET)
+            .setDelegate(delegate)
+            .build()
 
-        val landmarker = handLandmarker
-        if (landmarker == null) {
-            imageProxy.close()
-            return null
-        }
-
-        var bitmap: Bitmap? = null
-        var rotatedBitmap: Bitmap? = null
-        try {
-            bitmap = imageProxy.toBitmap()
-            val rotation = imageProxy.imageInfo.rotationDegrees
-            rotatedBitmap = if (rotation != 0) {
-                rotationMatrix.reset()
-                rotationMatrix.postRotate(rotation.toFloat())
-                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, rotationMatrix, true)
-            } else {
-                bitmap
+        val options = HandLandmarker.HandLandmarkerOptions.builder()
+            .setBaseOptions(baseOptions)
+            .setMinHandDetectionConfidence(0.5f)
+            .setMinHandPresenceConfidence(0.5f)
+            .setMinTrackingConfidence(0.5f)
+            .setNumHands(1)
+            .setRunningMode(RunningMode.LIVE_STREAM)
+            .setResultListener(this::onDetectionResult)
+            .setErrorListener { e ->
+                if (BuildConfig.DEBUG) Log.e(TAG, "Detection error", e)
             }
+            .build()
 
-            val mpImage = BitmapImageBuilder(rotatedBitmap).build()
-            val result = landmarker.detect(mpImage)
+        handLandmarker = HandLandmarker.createFromOptions(context, options)
+    }
 
+    private fun onDetectionResult(result: HandLandmarkerResult, @Suppress("UNUSED_PARAMETER") input: MPImage) {
+        synchronized(gestureRecognizer) {
             if (result.landmarks().isNotEmpty()) {
                 val handIndex = findPreferredHand(result)
                 if (handIndex < 0) {
                     gestureRecognizer.process(emptyList())
-                    return makeEmptyResult()
+                    onFrameResult?.invoke(makeEmptyResult())
+                    return
                 }
 
                 val landmarks = result.landmarks()[handIndex]
@@ -122,7 +121,7 @@ class HandTrackingEngine(context: Context) {
                 val dist = kotlin.math.sqrt(dx * dx + dy * dy)
                 val pinching = dist < PinchVolumeGesture.DEFAULT_PINCH_THRESHOLD
 
-                return FrameResult(
+                onFrameResult?.invoke(FrameResult(
                     landmarks = landmarks,
                     action = action,
                     isPinching = pinching,
@@ -132,24 +131,51 @@ class HandTrackingEngine(context: Context) {
                     isActivated = nowActivated,
                     controlMode = gestureRecognizer.controlMode,
                     modeSwitchProgress = gestureRecognizer.modeSwitchProgress,
-                    enteredVolumeMode = enteredVolumeMode
-                )
+                    enteredVolumeMode = enteredVolumeMode,
+                    thumbGestureProgress = gestureRecognizer.thumbGestureProgress,
+                    cursorX = gestureRecognizer.cursorX,
+                    cursorY = gestureRecognizer.cursorY,
+                    isCursorActive = gestureRecognizer.state == PinchVolumeGesture.State.CURSOR_MODE || gestureRecognizer.hasCursorPosition
+                ))
             } else {
                 gestureRecognizer.process(emptyList())
-                return makeEmptyResult()
+                onFrameResult?.invoke(makeEmptyResult())
             }
+        }
+    }
+
+    fun processFrame(imageProxy: ImageProxy) {
+        val landmarker = handLandmarker ?: run { imageProxy.close(); return }
+
+        try {
+            val bitmap = imageProxy.toBitmap()
+            val rotation = imageProxy.imageInfo.rotationDegrees
+
+            val finalBitmap: Bitmap
+            if (rotation != 0) {
+                rotationMatrix.reset()
+                rotationMatrix.postRotate(rotation.toFloat())
+                finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, rotationMatrix, true)
+                bitmap.recycle()
+            } else {
+                finalBitmap = bitmap
+            }
+
+            val mpImage = BitmapImageBuilder(finalBitmap).build()
+            var timestampMs = SystemClock.uptimeMillis()
+            if (timestampMs <= lastTimestampMs) timestampMs = lastTimestampMs + 1
+            lastTimestampMs = timestampMs
+
+            landmarker.detectAsync(mpImage, timestampMs)
         } catch (e: Exception) {
-            if (BuildConfig.DEBUG) Log.e(TAG, "Frame processing error", e)
-            return null
+            if (BuildConfig.DEBUG) Log.e(TAG, "Frame error", e)
         } finally {
-            if (rotatedBitmap != null && rotatedBitmap !== bitmap) rotatedBitmap.recycle()
-            bitmap?.recycle()
             imageProxy.close()
         }
     }
 
     @Suppress("DEPRECATION")
-    private fun findPreferredHand(result: com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult): Int {
+    private fun findPreferredHand(result: HandLandmarkerResult): Int {
         if (preferredHand == "both") return 0
         for (i in result.handednesses().indices) {
             val label = result.handednesses()[i][0].categoryName()
@@ -170,7 +196,11 @@ class HandTrackingEngine(context: Context) {
             isActivated = gestureRecognizer.isActivated,
             controlMode = gestureRecognizer.controlMode,
             modeSwitchProgress = 0f,
-            enteredVolumeMode = false
+            enteredVolumeMode = false,
+            thumbGestureProgress = 0f,
+            cursorX = 0.5f,
+            cursorY = 0.5f,
+            isCursorActive = false
         )
     }
 
@@ -187,7 +217,10 @@ class HandTrackingEngine(context: Context) {
 
         val savedMode = prefs.getString(PrefsKeys.CONTROL_MODE, "MEDIA") ?: "MEDIA"
         gestureRecognizer.setMode(
-            if (savedMode == "SCREEN") ControlMode.SCREEN else ControlMode.MEDIA
+            when (savedMode) {
+                "CONTROL", "SCREEN", "NAVIGATION" -> ControlMode.CONTROL
+                else -> ControlMode.MEDIA
+            }
         )
     }
 

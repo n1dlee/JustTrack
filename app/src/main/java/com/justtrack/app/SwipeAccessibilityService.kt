@@ -45,4 +45,10 @@ class SwipeAccessibilityService : AccessibilityService() {
             .build()
         dispatchGesture(gesture, null, null)
     }
+
+    fun goBack() = performGlobalAction(GLOBAL_ACTION_BACK)
+
+    fun goHome() = performGlobalAction(GLOBAL_ACTION_HOME)
+
+    fun recentApps() = performGlobalAction(GLOBAL_ACTION_RECENTS)
 }

@@ -3,6 +3,7 @@ package com.justtrack.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -50,6 +51,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (hasOverlayPermission()) {
+            requestPermissions()
+        } else {
+            Toast.makeText(this, R.string.overlay_permission_required, Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -58,6 +69,7 @@ class MainActivity : AppCompatActivity() {
         volumeController = VolumeController(this)
         screenController = ScreenController(this)
         engine = HandTrackingEngine(this)
+        engine.onFrameResult = { result -> handleFrameResult(result) }
 
         isTracking = savedInstanceState?.getBoolean(KEY_TRACKING, false)
             ?: getSharedPreferences(PrefsKeys.PREFS_NAME, MODE_PRIVATE)
@@ -113,6 +125,62 @@ class MainActivity : AppCompatActivity() {
         outState.putBoolean(KEY_TRACKING, isTracking)
     }
 
+    private fun handleFrameResult(result: HandTrackingEngine.FrameResult) {
+        if (result.activationChanged && result.isActivated) {
+            volumeController.vibrateActivation()
+        }
+
+        if (result.enteredVolumeMode && result.controlMode == ControlMode.MEDIA) {
+            volumeController.beginSmoothVolume()
+        }
+
+        when (val action = result.action) {
+            is GestureAction.ModeSwitch -> {
+                saveControlMode(result.controlMode)
+                runOnUiThread {
+                    val msg = when (result.controlMode) {
+                        ControlMode.MEDIA -> getString(R.string.toast_mode_media)
+                        ControlMode.CONTROL -> getString(R.string.toast_mode_control)
+                    }
+                    Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                }
+            }
+            is GestureAction.VolumeSet,
+            is GestureAction.PlayPause,
+            is GestureAction.NextTrack,
+            is GestureAction.PrevTrack -> volumeController.dispatchAction(action)
+
+            is GestureAction.SwipeUp,
+            is GestureAction.SwipeDown,
+            is GestureAction.SwipeLeft,
+            is GestureAction.SwipeRight,
+            is GestureAction.TapScreen,
+            is GestureAction.DoubleTapScreen,
+            is GestureAction.GoBack,
+            is GestureAction.GoHome,
+            is GestureAction.RecentApps,
+            is GestureAction.AcceptCall,
+            is GestureAction.DeclineCall,
+            is GestureAction.ScreenScroll,
+            is GestureAction.TapAt,
+            is GestureAction.PreviousApp -> screenController.dispatchAction(action)
+
+            is GestureAction.CursorMove,
+            is GestureAction.None -> {}
+        }
+
+        runOnUiThread {
+            binding.handOverlay.updateLandmarks(
+                result.landmarks, result.isPinching,
+                result.gestureState, result.activationProgress,
+                result.controlMode, result.modeSwitchProgress,
+                result.thumbGestureProgress,
+                result.cursorX, result.cursorY, result.isCursorActive
+            )
+            binding.handOverlay.showAction(result.action)
+        }
+    }
+
     private fun syncTrackingState() {
         val serviceRunning = getSharedPreferences(PrefsKeys.PREFS_NAME, MODE_PRIVATE)
             .getBoolean(PrefsKeys.SERVICE_RUNNING, false)
@@ -164,49 +232,7 @@ class MainActivity : AppCompatActivity() {
                 .build()
 
             imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                val result = engine.processFrame(imageProxy) ?: return@setAnalyzer
-
-                if (result.activationChanged && result.isActivated) {
-                    volumeController.vibrateActivation()
-                }
-
-                if (result.enteredVolumeMode && result.controlMode == ControlMode.MEDIA) {
-                    volumeController.beginSmoothVolume()
-                }
-
-                when (val action = result.action) {
-                    is GestureAction.ModeSwitch -> {
-                        saveControlMode(result.controlMode)
-                        runOnUiThread {
-                            val msg = if (result.controlMode == ControlMode.SCREEN)
-                                getString(R.string.toast_mode_screen)
-                            else getString(R.string.toast_mode_media)
-                            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    is GestureAction.VolumeSet,
-                    is GestureAction.PlayPause,
-                    is GestureAction.NextTrack,
-                    is GestureAction.PrevTrack -> volumeController.dispatchAction(action)
-
-                    is GestureAction.SwipeUp,
-                    is GestureAction.SwipeDown,
-                    is GestureAction.SwipeLeft,
-                    is GestureAction.SwipeRight,
-                    is GestureAction.TapScreen,
-                    is GestureAction.DoubleTapScreen -> screenController.dispatchAction(action)
-
-                    is GestureAction.None -> {}
-                }
-
-                runOnUiThread {
-                    binding.handOverlay.updateLandmarks(
-                        result.landmarks, result.isPinching,
-                        result.gestureState, result.activationProgress,
-                        result.controlMode, result.modeSwitchProgress
-                    )
-                    binding.handOverlay.showAction(result.action)
-                }
+                engine.processFrame(imageProxy)
             }
 
             val cameraSelector = CameraSelector.Builder()
@@ -230,6 +256,10 @@ class MainActivity : AppCompatActivity() {
         binding.handOverlay.clear()
     }
 
+    private fun hasOverlayPermission(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
+    }
+
     private fun hasPermissions(): Boolean {
         val camera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED
@@ -237,14 +267,23 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
                     PackageManager.PERMISSION_GRANTED
         } else true
-        return camera && notif
+        return camera && notif && hasOverlayPermission()
     }
 
     private fun requestPermissions() {
+        if (!hasOverlayPermission()) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            overlayPermissionLauncher.launch(intent)
+            return
+        }
         val perms = mutableListOf(Manifest.permission.CAMERA)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        perms.add(Manifest.permission.ANSWER_PHONE_CALLS)
         permissionLauncher.launch(perms.toTypedArray())
     }
 

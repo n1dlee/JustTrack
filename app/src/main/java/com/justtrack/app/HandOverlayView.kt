@@ -36,6 +36,10 @@ class HandOverlayView @JvmOverloads constructor(
     private var activationProgress = 0f
     private var currentMode = ControlMode.MEDIA
     private var modeSwitchProgress = 0f
+    private var thumbGestureProgress = 0f
+    private var cursorX = 0.5f
+    private var cursorY = 0.5f
+    private var isCursorActive = false
     private var lastAction: GestureAction = GestureAction.None
     private var lastActionShowTime = 0L
 
@@ -121,13 +125,13 @@ class HandOverlayView @JvmOverloads constructor(
         strokeWidth = 2f
     }
 
-    private val screenBorderOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val controlBorderOuterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(160, 0, 120, 255)
         style = Paint.Style.STROKE
         strokeWidth = 4f
     }
 
-    private val screenBorderInnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val controlBorderInnerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(80, 0, 120, 255)
         style = Paint.Style.STROKE
         strokeWidth = 2f
@@ -155,7 +159,7 @@ class HandOverlayView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
-    private val screenBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val controlBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(160, 0, 100, 220)
         style = Paint.Style.FILL
     }
@@ -173,13 +177,35 @@ class HandOverlayView @JvmOverloads constructor(
         strokeCap = Paint.Cap.ROUND
     }
 
+    private val thumbArcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(220, 255, 180, 50)
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 255, 80, 80)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
+
+    private val cursorDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(200, 255, 80, 80)
+        style = Paint.Style.FILL
+    }
+
     fun updateLandmarks(
         newLandmarks: List<NormalizedLandmark>?,
         pinching: Boolean,
         state: PinchVolumeGesture.State = PinchVolumeGesture.State.INACTIVE,
         progress: Float = 0f,
         controlMode: ControlMode = ControlMode.MEDIA,
-        msProgress: Float = 0f
+        msProgress: Float = 0f,
+        thumbProgress: Float = 0f,
+        curX: Float = 0.5f,
+        curY: Float = 0.5f,
+        cursorActive: Boolean = false
     ) {
         landmarks = newLandmarks
         isPinching = pinching
@@ -187,11 +213,16 @@ class HandOverlayView @JvmOverloads constructor(
         activationProgress = progress
         currentMode = controlMode
         modeSwitchProgress = msProgress
+        thumbGestureProgress = thumbProgress
+        cursorX = curX
+        cursorY = curY
+        isCursorActive = cursorActive
         invalidate()
     }
 
     fun showAction(action: GestureAction) {
-        if (action is GestureAction.None || action is GestureAction.VolumeSet) return
+        if (action is GestureAction.None || action is GestureAction.VolumeSet ||
+            action is GestureAction.ScreenScroll || action is GestureAction.CursorMove) return
         lastAction = action
         lastActionShowTime = System.currentTimeMillis()
         invalidate()
@@ -203,6 +234,8 @@ class HandOverlayView @JvmOverloads constructor(
         gestureState = PinchVolumeGesture.State.INACTIVE
         activationProgress = 0f
         modeSwitchProgress = 0f
+        thumbGestureProgress = 0f
+        isCursorActive = false
         invalidate()
     }
 
@@ -219,6 +252,7 @@ class HandOverlayView @JvmOverloads constructor(
         val lm = landmarks
         if (lm == null || lm.size < 21) {
             if (!isActive) drawHint(canvas, w, h)
+            drawCursor(canvas, w, h)
             drawActionFeedback(canvas, w, h)
             return
         }
@@ -237,12 +271,22 @@ class HandOverlayView @JvmOverloads constructor(
                 drawModeSwitchProgress(canvas, w, h)
                 drawActiveBadge(canvas, w)
             }
+            PinchVolumeGesture.State.THUMB_GESTURE -> {
+                drawLandmarks(canvas, lm, w, h)
+                drawThumbGestureProgress(canvas, w, h)
+                drawActiveBadge(canvas, w)
+            }
+            PinchVolumeGesture.State.CURSOR_MODE -> {
+                drawLandmarks(canvas, lm, w, h)
+                drawActiveBadge(canvas, w)
+            }
             else -> {
                 drawLandmarks(canvas, lm, w, h)
                 drawActiveBadge(canvas, w)
             }
         }
 
+        drawCursor(canvas, w, h)
         drawActionFeedback(canvas, w, h)
     }
 
@@ -310,33 +354,67 @@ class HandOverlayView @JvmOverloads constructor(
         canvas.drawArc(rect, -90f, 360f * modeSwitchProgress, false, modeSwitchArcPaint)
 
         canvas.drawText("✌️", centerX, centerY + 14f, progressTextPaint)
-        val targetMode = if (currentMode == ControlMode.MEDIA) "Экран" else "Медиа"
+        val targetMode = when (currentMode) {
+            ControlMode.MEDIA -> "Управление"
+            ControlMode.CONTROL -> "Медиа"
+        }
         canvas.drawText("→ $targetMode", centerX, centerY + radius + 40f, activationHintPaint)
     }
 
+    private fun drawThumbGestureProgress(canvas: Canvas, w: Float, h: Float) {
+        val centerX = w / 2f
+        val centerY = h / 2f
+        val radius = 60f
+        val rect = RectF(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
+
+        canvas.drawArc(rect, 0f, 360f, false, progressBgPaint)
+        canvas.drawArc(rect, -90f, 360f * thumbGestureProgress, false, thumbArcPaint)
+
+        canvas.drawText("👍", centerX, centerY + 14f, progressTextPaint)
+    }
+
     private fun drawActiveBorder(canvas: Canvas, w: Float, h: Float) {
-        if (currentMode == ControlMode.SCREEN) {
-            canvas.drawRect(0f, 0f, w, h, screenBorderOuterPaint)
-            canvas.drawRect(4f, 4f, w - 4f, h - 4f, screenBorderInnerPaint)
-        } else {
-            canvas.drawRect(0f, 0f, w, h, borderOuterPaint)
-            canvas.drawRect(4f, 4f, w - 4f, h - 4f, borderInnerPaint)
+        when (currentMode) {
+            ControlMode.CONTROL -> {
+                canvas.drawRect(0f, 0f, w, h, controlBorderOuterPaint)
+                canvas.drawRect(4f, 4f, w - 4f, h - 4f, controlBorderInnerPaint)
+            }
+            ControlMode.MEDIA -> {
+                canvas.drawRect(0f, 0f, w, h, borderOuterPaint)
+                canvas.drawRect(4f, 4f, w - 4f, h - 4f, borderInnerPaint)
+            }
         }
     }
 
     private fun drawActiveBadge(canvas: Canvas, w: Float) {
-        val badgeW = 140f
+        val badgeW = if (currentMode == ControlMode.CONTROL) 180f else 140f
         val badgeH = 32f
         val x = w / 2f - badgeW / 2f
         val y = 16f
 
-        if (currentMode == ControlMode.SCREEN) {
-            canvas.drawRoundRect(x, y, x + badgeW, y + badgeH, 16f, 16f, screenBadgePaint)
-            canvas.drawText("📱 Экран", w / 2f, y + 24f, badgeTextPaint)
-        } else {
-            canvas.drawRoundRect(x, y, x + badgeW, y + badgeH, 16f, 16f, activeBadgePaint)
-            canvas.drawText("🎵 Медиа", w / 2f, y + 24f, badgeTextPaint)
+        when (currentMode) {
+            ControlMode.CONTROL -> {
+                canvas.drawRoundRect(x, y, x + badgeW, y + badgeH, 16f, 16f, controlBadgePaint)
+                canvas.drawText("🎮 Управление", w / 2f, y + 24f, badgeTextPaint)
+            }
+            ControlMode.MEDIA -> {
+                canvas.drawRoundRect(x, y, x + badgeW, y + badgeH, 16f, 16f, activeBadgePaint)
+                canvas.drawText("🎵 Медиа", w / 2f, y + 24f, badgeTextPaint)
+            }
         }
+    }
+
+    private fun drawCursor(canvas: Canvas, w: Float, h: Float) {
+        if (!isCursorActive) return
+
+        val cx = cursorX * w
+        val cy = cursorY * h
+        val size = 20f
+
+        canvas.drawCircle(cx, cy, 5f, cursorDotPaint)
+        canvas.drawLine(cx - size, cy, cx + size, cy, cursorPaint)
+        canvas.drawLine(cx, cy - size, cx, cy + size, cursorPaint)
+        canvas.drawCircle(cx, cy, size, cursorPaint)
     }
 
     private fun drawActionFeedback(canvas: Canvas, w: Float, h: Float) {
@@ -355,12 +433,19 @@ class HandOverlayView @JvmOverloads constructor(
             is GestureAction.PlayPause -> "⏯" to "Play / Pause"
             is GestureAction.NextTrack -> "⏭" to "Next Track"
             is GestureAction.PrevTrack -> "⏮" to "Prev Track"
-            is GestureAction.SwipeUp -> "⬆" to "Swipe Up"
-            is GestureAction.SwipeDown -> "⬇" to "Swipe Down"
-            is GestureAction.SwipeLeft -> "⬅" to "Swipe Left"
-            is GestureAction.SwipeRight -> "➡" to "Swipe Right"
-            is GestureAction.TapScreen -> "👆" to "Tap"
-            is GestureAction.DoubleTapScreen -> "👆👆" to "Double Tap"
+            is GestureAction.SwipeUp -> "⬆" to "Свайп вверх"
+            is GestureAction.SwipeDown -> "⬇" to "Свайп вниз"
+            is GestureAction.SwipeLeft -> "⬅" to "Свайп влево"
+            is GestureAction.SwipeRight -> "➡" to "Свайп вправо"
+            is GestureAction.TapScreen -> "👆" to "Тап"
+            is GestureAction.TapAt -> "🎯" to "Тап"
+            is GestureAction.DoubleTapScreen -> "👆👆" to "Двойной тап"
+            is GestureAction.GoBack -> "⬅" to "Назад"
+            is GestureAction.GoHome -> "🏠" to "Домой"
+            is GestureAction.RecentApps -> "📋" to "Приложения"
+            is GestureAction.PreviousApp -> "🔄" to "Предыдущее"
+            is GestureAction.AcceptCall -> "📞" to "Принять"
+            is GestureAction.DeclineCall -> "📵" to "Отклонить"
             is GestureAction.ModeSwitch -> "🔄" to "Mode Switch"
             else -> return
         }

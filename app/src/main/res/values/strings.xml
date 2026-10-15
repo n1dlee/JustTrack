@@ -5,12 +5,13 @@
     <!-- MainActivity -->
     <string name="title">JustTrack</string>
     <string name="subtitle">Управляй телефоном жестами</string>
-    <string name="gesture_hint">✋ Покажи ладонь 1.5с → активация\n✌️ Держи 1.5с → переключить режим\n🤏 Тап = play/pause (медиа) / тап (экран)\n🤏🤏 Двойной = след. трек / двойной тап\n↕ Зажми + двигай = громкость / свайп\n⏱ 10с без жестов → деактивация</string>
+    <string name="gesture_hint">✋ Покажи ладонь 1.5с → активация\n✌️ Держи 1.5с → переключить режим\n🎵 Медиа: тап=play, 2x=след, 3x=пред, зажми=громкость\n🎮 Управление: тап=клик, 2x=назад, 3x=домой, зажми=скролл\n👍 Палец вверх 0.8с → приложения\n👎 Палец вниз 0.8с → предыдущее\n✊ Кулак → двигай курсор → разожми → тапни\n⏱ 10с без жестов → деактивация</string>
     <string name="status_active">● Активен — слежу за жестами</string>
     <string name="status_stopped">○ Остановлен</string>
     <string name="btn_start">Запустить JustTrack</string>
     <string name="btn_stop">Остановить JustTrack</string>
     <string name="permissions_required">Нужны разрешения камеры и уведомлений</string>
+    <string name="overlay_permission_required">Разреши показ поверх других приложений, чтобы видеть курсор в любом приложении</string>
 
     <!-- Settings -->
     <string name="settings_title">Настройки</string>
@@ -45,7 +46,7 @@
     <!-- Toast messages -->
     <string name="toast_activated">JustTrack: Жесты активированы ✋</string>
     <string name="toast_deactivated">JustTrack: Жесты деактивированы</string>
-    <string name="toast_mode_screen">JustTrack: Режим экрана ✌️</string>
+    <string name="toast_mode_control">JustTrack: Режим управления 🎮</string>
     <string name="toast_mode_media">JustTrack: Режим медиа 🎵</string>
 
     <!-- Accessibility Service -->

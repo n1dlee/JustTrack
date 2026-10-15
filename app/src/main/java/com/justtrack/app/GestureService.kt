@@ -6,10 +6,13 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -39,12 +42,14 @@ class GestureService : LifecycleService() {
     private lateinit var volumeController: VolumeController
     private lateinit var screenController: ScreenController
     private var cameraRunning = false
+    private var overlayView: HandOverlayView? = null
 
     override fun onCreate() {
         super.onCreate()
         volumeController = VolumeController(this)
         screenController = ScreenController(this)
         engine = HandTrackingEngine(this)
+        engine.onFrameResult = { result -> handleFrameResult(result) }
         loadPreferences()
         createNotificationChannel()
     }
@@ -72,9 +77,69 @@ class GestureService : LifecycleService() {
 
     override fun onDestroy() {
         setServiceRunning(false)
+        removeOverlay()
         engine.release()
         cameraExecutor.shutdown()
         super.onDestroy()
+    }
+
+    private fun handleFrameResult(result: HandTrackingEngine.FrameResult) {
+        if (result.activationChanged) {
+            if (result.isActivated) {
+                volumeController.vibrateActivation()
+                showToast(getString(R.string.toast_activated))
+            } else {
+                showToast(getString(R.string.toast_deactivated))
+            }
+        }
+
+        if (result.enteredVolumeMode && result.controlMode == ControlMode.MEDIA) {
+            volumeController.beginSmoothVolume()
+        }
+
+        when (val action = result.action) {
+            is GestureAction.ModeSwitch -> {
+                saveControlMode(result.controlMode)
+                val msg = when (result.controlMode) {
+                    ControlMode.MEDIA -> getString(R.string.toast_mode_media)
+                    ControlMode.CONTROL -> getString(R.string.toast_mode_control)
+                }
+                showToast(msg)
+            }
+            is GestureAction.VolumeSet,
+            is GestureAction.PlayPause,
+            is GestureAction.NextTrack,
+            is GestureAction.PrevTrack -> volumeController.dispatchAction(action)
+
+            is GestureAction.SwipeUp,
+            is GestureAction.SwipeDown,
+            is GestureAction.SwipeLeft,
+            is GestureAction.SwipeRight,
+            is GestureAction.TapScreen,
+            is GestureAction.DoubleTapScreen,
+            is GestureAction.GoBack,
+            is GestureAction.GoHome,
+            is GestureAction.RecentApps,
+            is GestureAction.AcceptCall,
+            is GestureAction.DeclineCall,
+            is GestureAction.ScreenScroll,
+            is GestureAction.TapAt,
+            is GestureAction.PreviousApp -> screenController.dispatchAction(action)
+
+            is GestureAction.CursorMove,
+            is GestureAction.None -> {}
+        }
+
+        mainHandler.post {
+            overlayView?.updateLandmarks(
+                result.landmarks, result.isPinching,
+                result.gestureState, result.activationProgress,
+                result.controlMode, result.modeSwitchProgress,
+                result.thumbGestureProgress,
+                result.cursorX, result.cursorY, result.isCursorActive
+            )
+            overlayView?.showAction(result.action)
+        }
     }
 
     private fun loadPreferences() {
@@ -124,43 +189,7 @@ class GestureService : LifecycleService() {
                 .build()
 
             imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                val result = engine.processFrame(imageProxy) ?: return@setAnalyzer
-
-                if (result.activationChanged) {
-                    if (result.isActivated) {
-                        volumeController.vibrateActivation()
-                        showToast(getString(R.string.toast_activated))
-                    } else {
-                        showToast(getString(R.string.toast_deactivated))
-                    }
-                }
-
-                if (result.enteredVolumeMode && result.controlMode == ControlMode.MEDIA) {
-                    volumeController.beginSmoothVolume()
-                }
-
-                when (val action = result.action) {
-                    is GestureAction.ModeSwitch -> {
-                        saveControlMode(result.controlMode)
-                        val msg = if (result.controlMode == ControlMode.SCREEN)
-                            getString(R.string.toast_mode_screen)
-                        else getString(R.string.toast_mode_media)
-                        showToast(msg)
-                    }
-                    is GestureAction.VolumeSet,
-                    is GestureAction.PlayPause,
-                    is GestureAction.NextTrack,
-                    is GestureAction.PrevTrack -> volumeController.dispatchAction(action)
-
-                    is GestureAction.SwipeUp,
-                    is GestureAction.SwipeDown,
-                    is GestureAction.SwipeLeft,
-                    is GestureAction.SwipeRight,
-                    is GestureAction.TapScreen,
-                    is GestureAction.DoubleTapScreen -> screenController.dispatchAction(action)
-
-                    is GestureAction.None -> {}
-                }
+                engine.processFrame(imageProxy)
             }
 
             val cameraSelector = CameraSelector.Builder()
@@ -171,6 +200,7 @@ class GestureService : LifecycleService() {
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(this, cameraSelector, imageAnalysis)
                 cameraRunning = true
+                addOverlay()
             } catch (e: Exception) {
                 if (BuildConfig.DEBUG) Log.e(TAG, "Camera bind failed", e)
             }
@@ -182,7 +212,48 @@ class GestureService : LifecycleService() {
         cameraProviderFuture.addListener({
             cameraProviderFuture.get().unbindAll()
             cameraRunning = false
+            removeOverlay()
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun addOverlay() {
+        if (overlayView != null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) return
+
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
+
+        try {
+            val view = HandOverlayView(this)
+            (getSystemService(Context.WINDOW_SERVICE) as WindowManager).addView(view, params)
+            overlayView = view
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) Log.e(TAG, "Overlay add failed", e)
+        }
+    }
+
+    private fun removeOverlay() {
+        val view = overlayView ?: return
+        try {
+            (getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(view)
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) Log.e(TAG, "Overlay remove failed", e)
+        }
+        overlayView = null
     }
 
     private fun createNotificationChannel() {

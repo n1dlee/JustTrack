@@ -19,9 +19,18 @@ class GestureActionTest {
             GestureAction.SwipeRight,
             GestureAction.TapScreen,
             GestureAction.DoubleTapScreen,
+            GestureAction.GoBack,
+            GestureAction.GoHome,
+            GestureAction.RecentApps,
+            GestureAction.AcceptCall,
+            GestureAction.DeclineCall,
+            GestureAction.ScreenScroll(0.1f, 0.2f),
+            GestureAction.TapAt(0.3f, 0.4f),
+            GestureAction.PreviousApp,
+            GestureAction.CursorMove(0.5f, 0.6f),
             GestureAction.ModeSwitch
         )
-        assertThat(actions).hasSize(12)
+        assertThat(actions).hasSize(21)
     }
 
     @Test
@@ -29,6 +38,9 @@ class GestureActionTest {
         assertThat(GestureAction.None).isSameInstanceAs(GestureAction.None)
         assertThat(GestureAction.PlayPause).isSameInstanceAs(GestureAction.PlayPause)
         assertThat(GestureAction.SwipeUp).isSameInstanceAs(GestureAction.SwipeUp)
+        assertThat(GestureAction.GoBack).isSameInstanceAs(GestureAction.GoBack)
+        assertThat(GestureAction.AcceptCall).isSameInstanceAs(GestureAction.AcceptCall)
+        assertThat(GestureAction.PreviousApp).isSameInstanceAs(GestureAction.PreviousApp)
     }
 
     @Test
@@ -57,13 +69,62 @@ class GestureActionTest {
             GestureAction.SwipeRight,
             GestureAction.TapScreen,
             GestureAction.DoubleTapScreen,
+            GestureAction.GoBack,
+            GestureAction.GoHome,
+            GestureAction.RecentApps,
+            GestureAction.AcceptCall,
+            GestureAction.DeclineCall,
+            GestureAction.ScreenScroll(0f, 0f),
+            GestureAction.TapAt(0f, 0f),
+            GestureAction.PreviousApp,
+            GestureAction.CursorMove(0f, 0f),
             GestureAction.ModeSwitch
         )
         actions.forEach { assertThat(it).isInstanceOf(GestureAction::class.java) }
     }
 
     @Test
-    fun `ControlMode has MEDIA and SCREEN`() {
-        assertThat(ControlMode.values()).asList().containsExactly(ControlMode.MEDIA, ControlMode.SCREEN)
+    fun `ScreenScroll carries delta values`() {
+        val action = GestureAction.ScreenScroll(0.1f, -0.2f)
+        assertThat(action.deltaX).isWithin(0.001f).of(0.1f)
+        assertThat(action.deltaY).isWithin(0.001f).of(-0.2f)
+    }
+
+    @Test
+    fun `ScreenScroll equality based on values`() {
+        assertThat(GestureAction.ScreenScroll(0.1f, 0.2f)).isEqualTo(GestureAction.ScreenScroll(0.1f, 0.2f))
+        assertThat(GestureAction.ScreenScroll(0.1f, 0.2f)).isNotEqualTo(GestureAction.ScreenScroll(0.3f, 0.2f))
+    }
+
+    @Test
+    fun `TapAt carries coordinate values`() {
+        val action = GestureAction.TapAt(0.3f, 0.7f)
+        assertThat(action.x).isWithin(0.001f).of(0.3f)
+        assertThat(action.y).isWithin(0.001f).of(0.7f)
+    }
+
+    @Test
+    fun `TapAt equality based on values`() {
+        assertThat(GestureAction.TapAt(0.1f, 0.2f)).isEqualTo(GestureAction.TapAt(0.1f, 0.2f))
+        assertThat(GestureAction.TapAt(0.1f, 0.2f)).isNotEqualTo(GestureAction.TapAt(0.3f, 0.2f))
+    }
+
+    @Test
+    fun `CursorMove carries coordinate values`() {
+        val action = GestureAction.CursorMove(0.4f, 0.8f)
+        assertThat(action.x).isWithin(0.001f).of(0.4f)
+        assertThat(action.y).isWithin(0.001f).of(0.8f)
+    }
+
+    @Test
+    fun `CursorMove equality based on values`() {
+        assertThat(GestureAction.CursorMove(0.1f, 0.2f)).isEqualTo(GestureAction.CursorMove(0.1f, 0.2f))
+        assertThat(GestureAction.CursorMove(0.1f, 0.2f)).isNotEqualTo(GestureAction.CursorMove(0.1f, 0.3f))
+    }
+
+    @Test
+    fun `ControlMode has MEDIA and CONTROL`() {
+        assertThat(ControlMode.values()).asList()
+            .containsExactly(ControlMode.MEDIA, ControlMode.CONTROL)
     }
 }

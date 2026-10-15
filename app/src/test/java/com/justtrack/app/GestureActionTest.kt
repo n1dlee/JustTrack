@@ -5,41 +5,37 @@ import org.junit.Test
 
 class GestureActionTest {
 
+    private val allActions: List<GestureAction> = listOf(
+        GestureAction.None,
+        GestureAction.VolumeSet(0.1f),
+        GestureAction.PlayPause,
+        GestureAction.NextTrack,
+        GestureAction.PrevTrack,
+        GestureAction.SwipeLeft,
+        GestureAction.SwipeRight,
+        GestureAction.TapScreen,
+        GestureAction.GoBack,
+        GestureAction.GoHome,
+        GestureAction.RecentApps,
+        GestureAction.ScreenScroll(0.1f, 0.2f),
+        GestureAction.TapAt(0.3f, 0.4f),
+        GestureAction.PreviousApp,
+        GestureAction.CursorMove(0.5f, 0.6f),
+        GestureAction.ModeSwitch
+    )
+
     @Test
     fun `sealed interface has all expected subtypes`() {
-        val actions: List<GestureAction> = listOf(
-            GestureAction.None,
-            GestureAction.VolumeSet(0.1f),
-            GestureAction.PlayPause,
-            GestureAction.NextTrack,
-            GestureAction.PrevTrack,
-            GestureAction.SwipeUp,
-            GestureAction.SwipeDown,
-            GestureAction.SwipeLeft,
-            GestureAction.SwipeRight,
-            GestureAction.TapScreen,
-            GestureAction.DoubleTapScreen,
-            GestureAction.GoBack,
-            GestureAction.GoHome,
-            GestureAction.RecentApps,
-            GestureAction.AcceptCall,
-            GestureAction.DeclineCall,
-            GestureAction.ScreenScroll(0.1f, 0.2f),
-            GestureAction.TapAt(0.3f, 0.4f),
-            GestureAction.PreviousApp,
-            GestureAction.CursorMove(0.5f, 0.6f),
-            GestureAction.ModeSwitch
-        )
-        assertThat(actions).hasSize(21)
+        assertThat(allActions).hasSize(16)
+        assertThat(allActions.map { it::class }.toSet()).hasSize(16)
     }
 
     @Test
     fun `data objects are singletons`() {
         assertThat(GestureAction.None).isSameInstanceAs(GestureAction.None)
         assertThat(GestureAction.PlayPause).isSameInstanceAs(GestureAction.PlayPause)
-        assertThat(GestureAction.SwipeUp).isSameInstanceAs(GestureAction.SwipeUp)
+        assertThat(GestureAction.SwipeLeft).isSameInstanceAs(GestureAction.SwipeLeft)
         assertThat(GestureAction.GoBack).isSameInstanceAs(GestureAction.GoBack)
-        assertThat(GestureAction.AcceptCall).isSameInstanceAs(GestureAction.AcceptCall)
         assertThat(GestureAction.PreviousApp).isSameInstanceAs(GestureAction.PreviousApp)
     }
 
@@ -57,30 +53,7 @@ class GestureActionTest {
 
     @Test
     fun `all actions are GestureAction instances`() {
-        val actions: List<GestureAction> = listOf(
-            GestureAction.None,
-            GestureAction.VolumeSet(-0.1f),
-            GestureAction.PlayPause,
-            GestureAction.NextTrack,
-            GestureAction.PrevTrack,
-            GestureAction.SwipeUp,
-            GestureAction.SwipeDown,
-            GestureAction.SwipeLeft,
-            GestureAction.SwipeRight,
-            GestureAction.TapScreen,
-            GestureAction.DoubleTapScreen,
-            GestureAction.GoBack,
-            GestureAction.GoHome,
-            GestureAction.RecentApps,
-            GestureAction.AcceptCall,
-            GestureAction.DeclineCall,
-            GestureAction.ScreenScroll(0f, 0f),
-            GestureAction.TapAt(0f, 0f),
-            GestureAction.PreviousApp,
-            GestureAction.CursorMove(0f, 0f),
-            GestureAction.ModeSwitch
-        )
-        actions.forEach { assertThat(it).isInstanceOf(GestureAction::class.java) }
+        allActions.forEach { assertThat(it).isInstanceOf(GestureAction::class.java) }
     }
 
     @Test

@@ -189,7 +189,7 @@ class VolumeControllerTest {
 
     @Test
     fun `dispatchAction ignores screen actions`() {
-        controller.dispatchAction(GestureAction.SwipeUp)
+        controller.dispatchAction(GestureAction.SwipeLeft)
         controller.dispatchAction(GestureAction.TapScreen)
         verify(exactly = 0) { audioManager.setStreamVolume(any(), any(), any()) }
         verify(exactly = 0) { audioManager.dispatchMediaKeyEvent(any()) }

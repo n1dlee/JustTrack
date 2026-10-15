@@ -124,12 +124,30 @@ class PinchVolumeGestureTest {
 
     private fun fingersOpen() = makeLandmarks(0.3f, 0.3f, 0.6f, 0.6f)
 
-    /** Feeds the same held pose for the number of frames the state machine requires to confirm it. */
+    private val poseFrameIntervalMs =
+        PinchVolumeGesture.POSE_CONFIRM_MS / (PinchVolumeGesture.POSE_MIN_FRAMES - 1)
+
+    /**
+     * Feeds the same held pose for as many frames and as much time as the state
+     * machine needs to confirm it (POSE_MIN_FRAMES frames spanning POSE_CONFIRM_MS).
+     */
     private fun confirmEntry(landmarks: List<NormalizedLandmark>) {
-        repeat(PinchVolumeGesture.POSE_CONFIRM_FRAMES) {
+        gesture.process(landmarks)
+        repeat(PinchVolumeGesture.POSE_MIN_FRAMES - 1) {
+            fakeTime += poseFrameIntervalMs
             gesture.process(landmarks)
         }
     }
+
+    /** Feeds released frames until a one-shot pose is re-armed. */
+    private fun release(frames: Int = PinchVolumeGesture.POSE_REARM_FRAMES) {
+        repeat(frames) {
+            fakeTime += poseFrameIntervalMs
+            gesture.process(fingersOpen())
+        }
+    }
+
+    private val noHand = emptyList<NormalizedLandmark>()
 
     private fun pinchDown(y: Float = 0.5f, x: Float = 0.5f) {
         confirmEntry(pinchClose(y, x))
@@ -224,7 +242,7 @@ class PinchVolumeGestureTest {
     }
 
     @Test
-    fun `triple tap returns PrevTrack in media mode`() {
+    fun `triple tap returns PrevTrack in media mode immediately on third release`() {
         activateSystem()
         pinchDown()
         fakeTime += 100
@@ -236,10 +254,9 @@ class PinchVolumeGestureTest {
         fakeTime += 200
         gesture.process(pinchClose())
         fakeTime += 100
-        gesture.process(fingersOpen())
-        fakeTime += 500
         val result = gesture.process(fingersOpen())
         assertThat(result).isEqualTo(GestureAction.PrevTrack)
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
     }
 
     @Test
@@ -299,10 +316,58 @@ class PinchVolumeGestureTest {
         fakeTime += 200
         gesture.process(pinchClose())
         fakeTime += 100
-        gesture.process(fingersOpen())
-        fakeTime += 500
         val result = gesture.process(fingersOpen())
         assertThat(result).isEqualTo(GestureAction.GoHome)
+    }
+
+    // ============================
+    // Tap series correctness (audit F04)
+    // ============================
+
+    @Test
+    fun `tap then hold then tap yields a fresh single tap`() {
+        activateSystem()
+        pinchDown()
+        fakeTime += 100
+        gesture.process(fingersOpen())               // tap 1 -> TAP_WAITING
+        fakeTime += 100
+        gesture.process(pinchClose())                 // second pinch...
+        fakeTime += 400
+        gesture.process(pinchClose())                 // ...held -> VOLUME_MODE, pending tap dropped
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.VOLUME_MODE)
+        fakeTime += 50
+        gesture.process(fingersOpen())                // release drag
+
+        pinchDown()
+        fakeTime += 100
+        gesture.process(fingersOpen())                // a brand-new single tap
+        fakeTime += 500
+        val result = gesture.process(fingersOpen())
+        assertThat(result).isEqualTo(GestureAction.PlayPause)
+    }
+
+    @Test
+    fun `pinch arriving after the tap window resolves the old series first`() {
+        activateSystem()
+        pinchDown()
+        fakeTime += 100
+        gesture.process(fingersOpen())
+        fakeTime += PinchVolumeGesture.TAP_WAIT_TIMEOUT_MS + 50
+        val result = gesture.process(pinchClose())
+        assertThat(result).isEqualTo(GestureAction.PlayPause)
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
+    }
+
+    @Test
+    fun `changing mode drops pending taps`() {
+        activateSystem()
+        pinchDown()
+        fakeTime += 100
+        gesture.process(fingersOpen())
+        gesture.setMode(ControlMode.CONTROL)
+        fakeTime += 500
+        val result = gesture.process(fingersOpen())
+        assertThat(result).isEqualTo(GestureAction.None)
     }
 
     // ============================
@@ -483,6 +548,7 @@ class PinchVolumeGestureTest {
         gesture.process(makePeaceSignLandmarks())
         assertThat(gesture.controlMode).isEqualTo(ControlMode.CONTROL)
 
+        release()
         confirmEntry(makePeaceSignLandmarks())
         fakeTime += PinchVolumeGesture.MODE_SWITCH_HOLD_MS
         gesture.process(makePeaceSignLandmarks())
@@ -517,10 +583,155 @@ class PinchVolumeGestureTest {
         activateSystem()
         val base = makePeaceSignLandmarks()
         // shift the whole hand between frames so the "held still" check keeps failing
-        gesture.process(base.map { NormalizedLandmark.create(it.x(), it.y(), it.z()) })
-        gesture.process(base.map { NormalizedLandmark.create(it.x() + 0.2f, it.y(), it.z()) })
-        gesture.process(base.map { NormalizedLandmark.create(it.x() + 0.4f, it.y(), it.z()) })
+        for (shift in listOf(0f, 0.2f, 0.4f, 0.6f)) {
+            gesture.process(base.map { NormalizedLandmark.create(it.x() + shift, it.y(), it.z()) })
+            fakeTime += poseFrameIntervalMs
+        }
         assertThat(gesture.state).isNotEqualTo(PinchVolumeGesture.State.MODE_SWITCHING)
+    }
+
+    // ============================
+    // One-shot poses must be released before firing again (audit F09)
+    // ============================
+
+    @Test
+    fun `continuously held peace sign switches mode exactly once`() {
+        activateSystem()
+        confirmEntry(makePeaceSignLandmarks())
+        var switches = 0
+        repeat(100) { // 100 frames * 50 ms = 5 s of continuous hold
+            fakeTime += poseFrameIntervalMs
+            if (gesture.process(makePeaceSignLandmarks()) == GestureAction.ModeSwitch) switches++
+        }
+        assertThat(switches).isEqualTo(1)
+        assertThat(gesture.controlMode).isEqualTo(ControlMode.CONTROL)
+    }
+
+    @Test
+    fun `peace sign re-arms after release`() {
+        activateSystem()
+        confirmEntry(makePeaceSignLandmarks())
+        fakeTime += PinchVolumeGesture.MODE_SWITCH_HOLD_MS
+        assertThat(gesture.process(makePeaceSignLandmarks())).isEqualTo(GestureAction.ModeSwitch)
+
+        release()
+        confirmEntry(makePeaceSignLandmarks())
+        fakeTime += PinchVolumeGesture.MODE_SWITCH_HOLD_MS
+        assertThat(gesture.process(makePeaceSignLandmarks())).isEqualTo(GestureAction.ModeSwitch)
+        assertThat(gesture.controlMode).isEqualTo(ControlMode.MEDIA)
+    }
+
+    @Test
+    fun `continuously held thumbs up opens recent apps exactly once`() {
+        activateSystem()
+        confirmEntry(makeThumbsUpLandmarks())
+        var fired = 0
+        repeat(80) { // 4 s
+            fakeTime += poseFrameIntervalMs
+            if (gesture.process(makeThumbsUpLandmarks()) == GestureAction.RecentApps) fired++
+        }
+        assertThat(fired).isEqualTo(1)
+    }
+
+    // ============================
+    // Hand loss (audit F05)
+    // ============================
+
+    @Test
+    fun `losing the hand cancels activation instead of pausing its timer`() {
+        gesture.process(makeOpenHandLandmarks())
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.ACTIVATING)
+        gesture.process(noHand)
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.INACTIVE)
+        fakeTime += PinchVolumeGesture.ACTIVATION_HOLD_MS
+        gesture.process(makeOpenHandLandmarks())
+        assertThat(gesture.isActivated).isFalse()
+    }
+
+    @Test
+    fun `losing the hand cancels a mode switch hold`() {
+        activateSystem()
+        confirmEntry(makePeaceSignLandmarks())
+        gesture.process(noHand)
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
+        fakeTime += PinchVolumeGesture.MODE_SWITCH_HOLD_MS
+        val result = gesture.process(makePeaceSignLandmarks())
+        assertThat(result).isNotEqualTo(GestureAction.ModeSwitch)
+        assertThat(gesture.controlMode).isEqualTo(ControlMode.MEDIA)
+    }
+
+    @Test
+    fun `losing the hand cancels an unfinished pinch`() {
+        activateSystem()
+        pinchDown()
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.PINCHED)
+        gesture.process(noHand)
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
+        fakeTime += 600
+        assertThat(gesture.process(noHand)).isEqualTo(GestureAction.None)
+    }
+
+    @Test
+    fun `completed tap still resolves while the hand is out of frame`() {
+        activateSystem()
+        pinchDown()
+        fakeTime += 100
+        gesture.process(fingersOpen())
+        fakeTime += 500
+        assertThat(gesture.process(noHand)).isEqualTo(GestureAction.PlayPause)
+    }
+
+    @Test
+    fun `volume drag survives a brief dropout`() {
+        activateSystem()
+        enterVolumeMode(0.5f)
+        gesture.process(noHand)
+        fakeTime += PinchVolumeGesture.HAND_LOST_GRACE_MS / 2
+        val result = gesture.process(pinchClose(0.45f))
+        assertThat(result).isInstanceOf(GestureAction.VolumeSet::class.java)
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.VOLUME_MODE)
+    }
+
+    @Test
+    fun `volume drag ends after the grace period`() {
+        activateSystem()
+        enterVolumeMode(0.5f)
+        gesture.process(noHand)
+        fakeTime += PinchVolumeGesture.HAND_LOST_GRACE_MS + 50
+        gesture.process(noHand)
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
+    }
+
+    // ============================
+    // Pinch hysteresis
+    // ============================
+
+    @Test
+    fun `pinch is only entered below the threshold`() {
+        activateSystem()
+        val nearlyClosed = makeLandmarks(0.5f, 0.5f, 0.56f, 0.5f) // distance 0.06 > 0.05
+        confirmEntry(nearlyClosed)
+        assertThat(gesture.isPinching).isFalse()
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
+    }
+
+    @Test
+    fun `held pinch tolerates jitter just above the entry threshold`() {
+        activateSystem()
+        enterVolumeMode(0.5f)
+        val jittered = makeLandmarks(0.5f, 0.5f, 0.56f, 0.5f) // 0.06: above entry, below release
+        val result = gesture.process(jittered)
+        assertThat(result).isInstanceOf(GestureAction.VolumeSet::class.java)
+        assertThat(gesture.isPinching).isTrue()
+    }
+
+    @Test
+    fun `isPinching reflects the recogniser threshold`() {
+        activateSystem()
+        gesture.process(pinchClose())
+        assertThat(gesture.isPinching).isTrue()
+        gesture.process(fingersOpen())
+        assertThat(gesture.isPinching).isFalse()
     }
 
     // ============================
@@ -592,13 +803,46 @@ class PinchVolumeGestureTest {
     }
 
     @Test
-    fun `fist requires multiple confirm frames before entering cursor mode`() {
+    fun `fist needs enough frames before entering cursor mode`() {
         activateSystem()
         gesture.setMode(ControlMode.CONTROL)
-        repeat(PinchVolumeGesture.POSE_CONFIRM_FRAMES - 1) {
-            gesture.process(makeFistLandmarks())
+        gesture.process(makeFistLandmarks())
+        fakeTime += PinchVolumeGesture.POSE_CONFIRM_MS
+        gesture.process(makeFistLandmarks())
+        assertThat(gesture.state).isNotEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
+    }
+
+    @Test
+    fun `fist needs enough time before entering cursor mode`() {
+        activateSystem()
+        gesture.setMode(ControlMode.CONTROL)
+        repeat(PinchVolumeGesture.POSE_MIN_FRAMES * 2) {
+            gesture.process(makeFistLandmarks()) // many frames, no time passing
         }
         assertThat(gesture.state).isNotEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
+    }
+
+    @Test
+    fun `single misdetected frame does not drop the cursor`() {
+        activateSystem()
+        gesture.setMode(ControlMode.CONTROL)
+        confirmEntry(makeFistLandmarks())
+        gesture.process(fingersOpen())
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
+        gesture.process(makeFistLandmarks())
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
+    }
+
+    @Test
+    fun `cursor stays within the screen range`() {
+        activateSystem()
+        gesture.setMode(ControlMode.CONTROL)
+        confirmEntry(makeFistLandmarks())
+        val result = gesture.process(makeFistLandmarks()) as GestureAction.CursorMove
+        assertThat(result.x).isAtLeast(0f)
+        assertThat(result.x).isAtMost(1f)
+        assertThat(result.y).isAtLeast(0f)
+        assertThat(result.y).isAtMost(1f)
     }
 
     @Test
@@ -625,7 +869,7 @@ class PinchVolumeGestureTest {
         confirmEntry(makeFistLandmarks())
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
 
-        gesture.process(fingersOpen())
+        repeat(PinchVolumeGesture.CURSOR_RELEASE_FRAMES) { gesture.process(fingersOpen()) }
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
         assertThat(gesture.hasCursorPosition).isTrue()
     }
@@ -636,7 +880,7 @@ class PinchVolumeGestureTest {
         gesture.setMode(ControlMode.CONTROL)
 
         confirmEntry(makeFistLandmarks())
-        gesture.process(fingersOpen())
+        repeat(PinchVolumeGesture.CURSOR_RELEASE_FRAMES) { gesture.process(fingersOpen()) }
         assertThat(gesture.hasCursorPosition).isTrue()
 
         pinchDown()
@@ -670,6 +914,9 @@ class PinchVolumeGestureTest {
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE)
 
         val small = List(10) { NormalizedLandmark.create(0.5f, 0.5f, 0f) }
+        gesture.process(small)
+        assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.CURSOR_MODE) // brief dropout tolerated
+        fakeTime += PinchVolumeGesture.HAND_LOST_GRACE_MS + 50
         gesture.process(small)
         assertThat(gesture.state).isEqualTo(PinchVolumeGesture.State.IDLE)
     }

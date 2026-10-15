@@ -2,11 +2,11 @@
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/background_dark">
+    android:layout_height="match_parent">
 
-    <!-- Camera Preview + Hand Overlay (top 60%) -->
+    <!-- Camera preview (top 55%) -->
     <FrameLayout
         android:id="@+id/cameraContainer"
         android:layout_width="0dp"
@@ -14,8 +14,8 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/controlsContainer"
-        app:layout_constraintVertical_weight="6">
+        app:layout_constraintBottom_toTopOf="@id/controlsScroll"
+        app:layout_constraintVertical_weight="55">
 
         <androidx.camera.view.PreviewView
             android:id="@+id/previewView"
@@ -24,82 +24,149 @@
             app:implementationMode="compatible"
             app:scaleType="fillCenter" />
 
-        <com.justtrack.app.HandOverlayView
-            android:id="@+id/handOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-        <!-- Status badge on top of camera -->
         <TextView
             android:id="@+id/tvStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/status_stopped"
-            android:textSize="14sp"
-            android:textColor="@color/text_primary"
-            android:background="@android:color/transparent"
+            android:layout_gravity="top|start"
+            android:accessibilityLiveRegion="polite"
             android:padding="12dp"
-            android:layout_gravity="top|start" />
+            android:text="@string/status_stopped"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp" />
 
     </FrameLayout>
 
-    <!-- Controls (bottom 40%) -->
-    <LinearLayout
-        android:id="@+id/controlsContainer"
+    <!-- Controls (bottom 45%) -->
+    <ScrollView
+        android:id="@+id/controlsScroll"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:padding="24dp"
+        android:fillViewport="true"
         app:layout_constraintTop_toBottomOf="@id/cameraContainer"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintVertical_weight="4">
+        app:layout_constraintVertical_weight="45">
 
-        <TextView
-            android:id="@+id/tvTitle"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/title"
-            android:textSize="28sp"
-            android:textColor="@color/text_primary"
-            android:textStyle="bold" />
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="20dp">
 
-        <TextView
-            android:id="@+id/tvGesture"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/gesture_hint"
-            android:textSize="13sp"
-            android:textColor="@color/text_hint"
-            android:textAlignment="center"
-            android:lineSpacingExtra="4dp"
-            android:layout_marginTop="12dp" />
+            <TextView
+                android:id="@+id/tvTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/title"
+                android:textColor="@color/text_primary"
+                android:textSize="26sp"
+                android:textStyle="bold" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnToggle"
-            android:layout_width="wrap_content"
-            android:layout_height="56dp"
-            android:text="@string/btn_start"
-            android:textSize="16sp"
-            android:paddingStart="32dp"
-            android:paddingEnd="32dp"
-            app:cornerRadius="28dp"
-            android:layout_marginTop="20dp" />
+            <TextView
+                android:id="@+id/tvGesture"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:lineSpacingExtra="4dp"
+                android:text="@string/gesture_hint"
+                android:textAlignment="center"
+                android:textColor="@color/text_hint"
+                android:textSize="13sp" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSettings"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/settings_btn"
-            android:textSize="14sp"
-            android:textColor="@color/text_secondary"
-            android:layout_marginTop="8dp"
-            app:icon="@android:drawable/ic_menu_manage"
-            app:iconTint="@color/text_secondary" />
+            <!-- Setup checklist: shown only for what is still missing -->
+            <LinearLayout
+                android:id="@+id/rowAccessibility"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
 
-    </LinearLayout>
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/setup_accessibility_off"
+                    android:textColor="@color/text_warning"
+                    android:textSize="13sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAccessibility"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/btn_enable_accessibility" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/rowOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/setup_overlay_off"
+                    android:textColor="@color/text_warning"
+                    android:textSize="13sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnOverlay"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/btn_grant_overlay" />
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="56dp"
+                android:layout_marginTop="18dp"
+                android:paddingStart="32dp"
+                android:paddingEnd="32dp"
+                android:text="@string/btn_start"
+                android:textSize="16sp"
+                app:cornerRadius="28dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSettings"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/settings_btn"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp"
+                app:icon="@android:drawable/ic_menu_manage"
+                app:iconTint="@color/text_secondary" />
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Hand overlay over the whole screen: landmarks are drawn inside the preview
+         area, the cursor wherever the tap would land. It never consumes touches. -->
+    <com.justtrack.app.HandOverlayView
+        android:id="@+id/handOverlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:clickable="false"
+        android:focusable="false"
+        android:importantForAccessibility="no"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

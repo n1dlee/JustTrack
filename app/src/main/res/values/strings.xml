@@ -4,14 +4,32 @@
 
     <!-- MainActivity -->
     <string name="title">JustTrack</string>
-    <string name="subtitle">Управляй телефоном жестами</string>
-    <string name="gesture_hint">✋ Покажи ладонь 1.5с → активация\n✌️ Держи 1.5с → переключить режим\n🎵 Медиа: тап=play, 2x=след, 3x=пред, зажми=громкость\n🎮 Управление: тап=клик, 2x=назад, 3x=домой, зажми=скролл\n👍 Палец вверх 0.8с → приложения\n👎 Палец вниз 0.8с → предыдущее\n✊ Кулак → двигай курсор → разожми → тапни\n⏱ 10с без жестов → деактивация</string>
-    <string name="status_active">● Активен — слежу за жестами</string>
+    <string name="gesture_hint">✋ Ладонь 1.5с → активация\n✌️ Держи 1.5с → сменить режим\n🎵 Медиа: тап = play, 2× = след., 3× = пред., зажми и веди = громкость\n🎮 Управление: тап = клик, 2× = назад, 3× = домой, зажми и веди = скролл\n👍 Держи 0.8с → список приложений\n👎 Держи 0.8с → предыдущее приложение\n✊ Кулак → веди курсор → разожми → тап = клик в точке курсора\n⏱ 10с без жестов → деактивация</string>
     <string name="status_stopped">○ Остановлен</string>
+    <string name="status_starting">◌ Запуск камеры…</string>
+    <string name="status_running">● Активен • %1$s</string>
+    <string name="status_error_camera_permission">⚠ Нет доступа к камере</string>
+    <string name="status_error_model">⚠ Модель распознавания не загрузилась</string>
+    <string name="status_error_camera">⚠ Камера недоступна (занята другим приложением?)</string>
+    <string name="status_error_no_frames">⚠ Камера не отдаёт кадры</string>
+    <string name="status_error_foreground">⚠ Android не разрешил запуск сервиса</string>
+    <string name="mode_label_media">🎵 Медиа</string>
+    <string name="mode_label_control">🎮 Управление</string>
     <string name="btn_start">Запустить JustTrack</string>
     <string name="btn_stop">Остановить JustTrack</string>
-    <string name="permissions_required">Нужны разрешения камеры и уведомлений</string>
-    <string name="overlay_permission_required">Разреши показ поверх других приложений, чтобы видеть курсор в любом приложении</string>
+    <string name="camera_permission_required">Без доступа к камере жесты не работают</string>
+
+    <!-- Setup checklist -->
+    <string name="setup_accessibility_off">Спец. возможности выключены: режим «Управление» не сможет нажимать и листать</string>
+    <string name="btn_enable_accessibility">Включить</string>
+    <string name="setup_overlay_off">Нет разрешения «Поверх других окон»: курсор не будет виден в других приложениях</string>
+    <string name="btn_grant_overlay">Разрешить</string>
+
+    <!-- Accessibility prominent disclosure -->
+    <string name="a11y_disclosure_title">Доступ к специальным возможностям</string>
+    <string name="a11y_disclosure_message">JustTrack использует Accessibility API только для режима «Управление»:\n\n• выполнять нажатия, свайпы и прокрутку по вашим жестам рукой;\n• нажимать «Назад», «Домой» и открывать список приложений;\n• запоминать, какое приложение было открыто перед текущим, чтобы жест 👎 мог к нему вернуться.\n\nJustTrack не читает содержимое экрана, не сохраняет и никуда не отправляет данные. Список приложений хранится только в памяти.\n\nНа следующем экране выберите JustTrack и включите службу.</string>
+    <string name="a11y_disclosure_accept">Согласен, открыть настройки</string>
+    <string name="a11y_disclosure_decline">Не сейчас</string>
 
     <!-- Settings -->
     <string name="settings_title">Настройки</string>
@@ -23,16 +41,16 @@
     <string name="pref_move_sensitivity_summary">Насколько сильно нужно двинуть рукой</string>
     <string name="pref_category_feedback">Обратная связь</string>
     <string name="pref_haptic_feedback">Вибрация</string>
-    <string name="pref_haptic_feedback_summary">Вибрация при жестах</string>
+    <string name="pref_haptic_feedback_summary">Вибрация, когда действие выполнено</string>
     <string name="pref_category_hand">Рука</string>
     <string name="pref_main_hand">Основная рука</string>
     <string name="pref_main_hand_summary">Какую руку отслеживать</string>
     <string name="pref_category_system">Система</string>
-    <string name="pref_auto_start">Автозапуск</string>
-    <string name="pref_auto_start_summary">Запускать JustTrack при включении телефона</string>
+    <string name="pref_auto_start">Напоминание после перезагрузки</string>
+    <string name="pref_auto_start_summary">Показать уведомление для быстрого запуска. Android не разрешает включать камеру автоматически при загрузке</string>
 
     <!-- Main hand entries -->
-    <string name="hand_both">Обе руки</string>
+    <string name="hand_both">Любая рука</string>
     <string name="hand_left">Левая рука</string>
     <string name="hand_right">Правая рука</string>
 
@@ -43,6 +61,11 @@
     <string name="notif_text">Слежу за жестами ✋</string>
     <string name="notif_stop">Остановить</string>
 
+    <!-- Boot reminder -->
+    <string name="reminder_channel_name">Напоминания</string>
+    <string name="reminder_title">JustTrack</string>
+    <string name="reminder_text">Нажми, чтобы снова включить управление жестами</string>
+
     <!-- Toast messages -->
     <string name="toast_activated">JustTrack: Жесты активированы ✋</string>
     <string name="toast_deactivated">JustTrack: Жесты деактивированы</string>
@@ -50,5 +73,5 @@
     <string name="toast_mode_media">JustTrack: Режим медиа 🎵</string>
 
     <!-- Accessibility Service -->
-    <string name="accessibility_service_description">JustTrack использует специальные возможности для выполнения свайпов и тапов на экране по жестам руки. Включите для режима управления экраном.</string>
+    <string name="accessibility_service_description">JustTrack выполняет нажатия, свайпы и системные действия («Назад», «Домой», список приложений) по жестам руки перед фронтальной камерой и запоминает предыдущее открытое приложение для жеста 👎. Содержимое экрана не читается, данные не сохраняются и не передаются.</string>
 </resources>

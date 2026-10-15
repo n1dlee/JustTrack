@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace = "com.justtrack.app"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.justtrack.app"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 7
-        versionName = "0.6.0"
+        targetSdk = 36
+        versionCode = 8
+        versionName = "0.7.0"
     }
 
     testOptions {
@@ -61,7 +61,7 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
     // MediaPipe Hand Landmarker
-    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+    implementation("com.google.mediapipe:tasks-vision:0.10.35")
 
     // Settings
     implementation("androidx.preference:preference-ktx:1.2.1")

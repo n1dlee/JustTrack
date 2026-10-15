@@ -1,8 +1,6 @@
 package com.justtrack.app
 
 object PrefsKeys {
-    const val PREFS_NAME = "justtrack"
-    const val SERVICE_RUNNING = "service_running"
     const val PINCH_SENSITIVITY = "pref_pinch_sensitivity"
     const val MOVE_SENSITIVITY = "pref_move_sensitivity"
     const val HAPTIC_FEEDBACK = "pref_haptic_feedback"

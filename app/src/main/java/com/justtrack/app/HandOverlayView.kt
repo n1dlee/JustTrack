@@ -5,8 +5,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
+import androidx.core.graphics.withClip
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 
 class HandOverlayView @JvmOverloads constructor(
@@ -40,8 +42,30 @@ class HandOverlayView @JvmOverloads constructor(
     private var cursorX = 0.5f
     private var cursorY = 0.5f
     private var isCursorActive = false
+    private var imageWidth = 0
+    private var imageHeight = 0
     private var lastAction: GestureAction = GestureAction.None
     private var lastActionShowTime = 0L
+    private val screenLocation = IntArray(2)
+    private val contentBounds = RectF()
+
+    /**
+     * Where the camera image is shown, in this view's coordinates. Landmarks are
+     * mapped into it with the same center-crop as PreviewView's fillCenter.
+     * Null means the whole view.
+     */
+    var contentRect: RectF? = null
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    /** The "show your palm" prompt; off for the system-wide overlay over other apps. */
+    var showIdleHint = true
+
+    init {
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
 
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -195,28 +219,20 @@ class HandOverlayView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
 
-    fun updateLandmarks(
-        newLandmarks: List<NormalizedLandmark>?,
-        pinching: Boolean,
-        state: PinchVolumeGesture.State = PinchVolumeGesture.State.INACTIVE,
-        progress: Float = 0f,
-        controlMode: ControlMode = ControlMode.MEDIA,
-        msProgress: Float = 0f,
-        thumbProgress: Float = 0f,
-        curX: Float = 0.5f,
-        curY: Float = 0.5f,
-        cursorActive: Boolean = false
-    ) {
-        landmarks = newLandmarks
-        isPinching = pinching
-        gestureState = state
-        activationProgress = progress
-        currentMode = controlMode
-        modeSwitchProgress = msProgress
-        thumbGestureProgress = thumbProgress
-        cursorX = curX
-        cursorY = curY
-        isCursorActive = cursorActive
+    fun update(result: HandTrackingEngine.FrameResult) {
+        landmarks = result.landmarks
+        isPinching = result.isPinching
+        gestureState = result.gestureState
+        activationProgress = result.activationProgress
+        currentMode = result.controlMode
+        modeSwitchProgress = result.modeSwitchProgress
+        thumbGestureProgress = result.thumbGestureProgress
+        cursorX = result.cursorX
+        cursorY = result.cursorY
+        isCursorActive = result.isCursorActive
+        imageWidth = result.imageWidth
+        imageHeight = result.imageHeight
+        showAction(result.action)
         invalidate()
     }
 
@@ -224,7 +240,7 @@ class HandOverlayView @JvmOverloads constructor(
         if (action is GestureAction.None || action is GestureAction.VolumeSet ||
             action is GestureAction.ScreenScroll || action is GestureAction.CursorMove) return
         lastAction = action
-        lastActionShowTime = System.currentTimeMillis()
+        lastActionShowTime = SystemClock.uptimeMillis()
         invalidate()
     }
 
@@ -242,68 +258,72 @@ class HandOverlayView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        val w = width.toFloat()
-        val h = height.toFloat()
+        val content = contentRect ?: contentBounds.apply { set(0f, 0f, width.toFloat(), height.toFloat()) }
+        val w = content.width()
+        val h = content.height()
         val isActive = gestureState != PinchVolumeGesture.State.INACTIVE &&
                 gestureState != PinchVolumeGesture.State.ACTIVATING
 
+        canvas.withClip(content) {
+            translate(content.left, content.top)
+            drawCameraArea(this, w, h, isActive)
+        }
+
+        // The cursor is drawn in screen space, outside the camera area if needed,
+        // exactly where an Accessibility tap would land.
+        drawCursor(canvas)
+    }
+
+    private fun drawCameraArea(canvas: Canvas, w: Float, h: Float, isActive: Boolean) {
         if (isActive) drawActiveBorder(canvas, w, h)
 
         val lm = landmarks
         if (lm == null || lm.size < 21) {
-            if (!isActive) drawHint(canvas, w, h)
-            drawCursor(canvas, w, h)
-            drawActionFeedback(canvas, w, h)
-            return
-        }
-
-        when (gestureState) {
-            PinchVolumeGesture.State.INACTIVE -> {
-                drawLandmarksDimmed(canvas, lm, w, h)
-                drawHint(canvas, w, h)
-            }
-            PinchVolumeGesture.State.ACTIVATING -> {
-                drawLandmarksDimmed(canvas, lm, w, h)
-                drawActivationProgress(canvas, w, h)
-            }
-            PinchVolumeGesture.State.MODE_SWITCHING -> {
-                drawLandmarks(canvas, lm, w, h)
-                drawModeSwitchProgress(canvas, w, h)
-                drawActiveBadge(canvas, w)
-            }
-            PinchVolumeGesture.State.THUMB_GESTURE -> {
-                drawLandmarks(canvas, lm, w, h)
-                drawThumbGestureProgress(canvas, w, h)
-                drawActiveBadge(canvas, w)
-            }
-            PinchVolumeGesture.State.CURSOR_MODE -> {
-                drawLandmarks(canvas, lm, w, h)
-                drawActiveBadge(canvas, w)
-            }
-            else -> {
-                drawLandmarks(canvas, lm, w, h)
-                drawActiveBadge(canvas, w)
+            if (!isActive && showIdleHint) drawHint(canvas, w, h)
+        } else {
+            when (gestureState) {
+                PinchVolumeGesture.State.INACTIVE -> {
+                    drawLandmarksDimmed(canvas, lm, w, h)
+                    if (showIdleHint) drawHint(canvas, w, h)
+                }
+                PinchVolumeGesture.State.ACTIVATING -> {
+                    drawLandmarksDimmed(canvas, lm, w, h)
+                    drawActivationProgress(canvas, w, h)
+                }
+                PinchVolumeGesture.State.MODE_SWITCHING -> {
+                    drawLandmarks(canvas, lm, w, h)
+                    drawModeSwitchProgress(canvas, w, h)
+                    drawActiveBadge(canvas, w)
+                }
+                PinchVolumeGesture.State.THUMB_GESTURE -> {
+                    drawLandmarks(canvas, lm, w, h)
+                    drawThumbGestureProgress(canvas, w, h)
+                    drawActiveBadge(canvas, w)
+                }
+                else -> {
+                    drawLandmarks(canvas, lm, w, h)
+                    drawActiveBadge(canvas, w)
+                }
             }
         }
 
-        drawCursor(canvas, w, h)
         drawActionFeedback(canvas, w, h)
     }
 
     private fun drawLandmarks(canvas: Canvas, lm: List<NormalizedLandmark>, w: Float, h: Float) {
         for ((from, to) in CONNECTIONS) {
-            val x1 = mirrorX(lm[from].x()) * w
-            val y1 = lm[from].y() * h
-            val x2 = mirrorX(lm[to].x()) * w
-            val y2 = lm[to].y() * h
+            val x1 = mapX(lm[from].x(), w, h)
+            val y1 = mapY(lm[from].y(), w, h)
+            val x2 = mapX(lm[to].x(), w, h)
+            val y2 = mapY(lm[to].y(), w, h)
             val isPinchConnection = (from == THUMB_TIP || to == THUMB_TIP) ||
                     (from == INDEX_TIP || to == INDEX_TIP)
             canvas.drawLine(x1, y1, x2, y2, if (isPinchConnection && isPinching) pinchLinePaint else linePaint)
         }
 
         for (i in lm.indices) {
-            val x = mirrorX(lm[i].x()) * w
-            val y = lm[i].y() * h
+            val x = mapX(lm[i].x(), w, h)
+            val y = mapY(lm[i].y(), w, h)
             val isPinchDot = (i == THUMB_TIP || i == INDEX_TIP) && isPinching
             val radius = if (isPinchDot) 12f else 6f
             canvas.drawCircle(x, y, radius, if (isPinchDot) pinchDotPaint else dotPaint)
@@ -312,15 +332,15 @@ class HandOverlayView @JvmOverloads constructor(
 
     private fun drawLandmarksDimmed(canvas: Canvas, lm: List<NormalizedLandmark>, w: Float, h: Float) {
         for ((from, to) in CONNECTIONS) {
-            val x1 = mirrorX(lm[from].x()) * w
-            val y1 = lm[from].y() * h
-            val x2 = mirrorX(lm[to].x()) * w
-            val y2 = lm[to].y() * h
+            val x1 = mapX(lm[from].x(), w, h)
+            val y1 = mapY(lm[from].y(), w, h)
+            val x2 = mapX(lm[to].x(), w, h)
+            val y2 = mapY(lm[to].y(), w, h)
             canvas.drawLine(x1, y1, x2, y2, inactiveLinePaint)
         }
         for (i in lm.indices) {
-            val x = mirrorX(lm[i].x()) * w
-            val y = lm[i].y() * h
+            val x = mapX(lm[i].x(), w, h)
+            val y = mapY(lm[i].y(), w, h)
             canvas.drawCircle(x, y, 4f, inactiveDotPaint)
         }
     }
@@ -404,11 +424,13 @@ class HandOverlayView @JvmOverloads constructor(
         }
     }
 
-    private fun drawCursor(canvas: Canvas, w: Float, h: Float) {
+    private fun drawCursor(canvas: Canvas) {
         if (!isCursorActive) return
 
-        val cx = cursorX * w
-        val cy = cursorY * h
+        val target = ScreenMapper.toScreen(context, cursorX, cursorY)
+        getLocationOnScreen(screenLocation)
+        val cx = target.x - screenLocation[0]
+        val cy = target.y - screenLocation[1]
         val size = 20f
 
         canvas.drawCircle(cx, cy, 5f, cursorDotPaint)
@@ -419,7 +441,7 @@ class HandOverlayView @JvmOverloads constructor(
 
     private fun drawActionFeedback(canvas: Canvas, w: Float, h: Float) {
         if (lastAction is GestureAction.None) return
-        val elapsed = System.currentTimeMillis() - lastActionShowTime
+        val elapsed = SystemClock.uptimeMillis() - lastActionShowTime
         if (elapsed > ACTION_DISPLAY_MS) {
             lastAction = GestureAction.None
             return
@@ -433,20 +455,15 @@ class HandOverlayView @JvmOverloads constructor(
             is GestureAction.PlayPause -> "⏯" to "Play / Pause"
             is GestureAction.NextTrack -> "⏭" to "Next Track"
             is GestureAction.PrevTrack -> "⏮" to "Prev Track"
-            is GestureAction.SwipeUp -> "⬆" to "Свайп вверх"
-            is GestureAction.SwipeDown -> "⬇" to "Свайп вниз"
             is GestureAction.SwipeLeft -> "⬅" to "Свайп влево"
             is GestureAction.SwipeRight -> "➡" to "Свайп вправо"
             is GestureAction.TapScreen -> "👆" to "Тап"
             is GestureAction.TapAt -> "🎯" to "Тап"
-            is GestureAction.DoubleTapScreen -> "👆👆" to "Двойной тап"
             is GestureAction.GoBack -> "⬅" to "Назад"
             is GestureAction.GoHome -> "🏠" to "Домой"
             is GestureAction.RecentApps -> "📋" to "Приложения"
             is GestureAction.PreviousApp -> "🔄" to "Предыдущее"
-            is GestureAction.AcceptCall -> "📞" to "Принять"
-            is GestureAction.DeclineCall -> "📵" to "Отклонить"
-            is GestureAction.ModeSwitch -> "🔄" to "Mode Switch"
+            is GestureAction.ModeSwitch -> "🔄" to "Смена режима"
             else -> return
         }
 
@@ -469,4 +486,24 @@ class HandOverlayView @JvmOverloads constructor(
     }
 
     private fun mirrorX(x: Float): Float = 1f - x
+
+    /** Scale of the camera image inside a w x h area with center-crop, or -1 if unknown. */
+    private fun imageScale(w: Float, h: Float): Float {
+        if (imageWidth <= 0 || imageHeight <= 0) return -1f
+        return maxOf(w / imageWidth, h / imageHeight)
+    }
+
+    private fun mapX(normalizedX: Float, w: Float, h: Float): Float {
+        val scale = imageScale(w, h)
+        if (scale < 0f) return mirrorX(normalizedX) * w
+        val shownWidth = imageWidth * scale
+        return (w - shownWidth) / 2f + mirrorX(normalizedX) * shownWidth
+    }
+
+    private fun mapY(normalizedY: Float, w: Float, h: Float): Float {
+        val scale = imageScale(w, h)
+        if (scale < 0f) return normalizedY * h
+        val shownHeight = imageHeight * scale
+        return (h - shownHeight) / 2f + normalizedY * shownHeight
+    }
 }

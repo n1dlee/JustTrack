@@ -93,6 +93,17 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.justtrack.app/.MainActivity
 ```
 
+### Release-сборка
+
+Подпись берётся из `keystore.properties` в корне проекта (файл в `.gitignore`, образец — [keystore.properties.example](keystore.properties.example)) или из переменных окружения `JUSTTRACK_STORE_FILE`, `JUSTTRACK_STORE_PASSWORD`, `JUSTTRACK_KEY_ALIAS`, `JUSTTRACK_KEY_PASSWORD`. Если ни того ни другого нет, release собирается неподписанным.
+
+```bash
+./gradlew assembleRelease   # app/build/outputs/apk/release/app-release.apk
+./gradlew bundleRelease     # app/build/outputs/bundle/release/app-release.aab — для Google Play
+```
+
+Keystore и пароль нужно хранить в резервной копии: без них нельзя выпустить обновление, подписанное тем же ключом. Release-APK подписан другим ключом, чем debug, поэтому поверх debug-версии он не встанет: сначала удали её.
+
 ## Тесты
 
 ```bash

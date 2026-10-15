@@ -1,7 +1,22 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Release signing comes from keystore.properties (git-ignored, see
+// keystore.properties.example) or, for CI, from JUSTTRACK_* environment variables.
+// Without either, release builds are produced unsigned.
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingValue(property: String, env: String): String? =
+    keystoreProperties.getProperty(property) ?: System.getenv(env)
+
+val releaseStoreFile = signingValue("storeFile", "JUSTTRACK_STORE_FILE")
 
 android {
     namespace = "com.justtrack.app"
@@ -19,8 +34,20 @@ android {
         unitTests.isReturnDefaultValues = true
     }
 
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = signingValue("storePassword", "JUSTTRACK_STORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "JUSTTRACK_KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "JUSTTRACK_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

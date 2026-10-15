@@ -14,3 +14,8 @@ local.properties
 *.dex
 /app/build
 /app/release
+
+# Release signing secrets
+keystore.properties
+*.jks
+*.keystore
